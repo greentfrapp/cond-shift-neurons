@@ -21,6 +21,13 @@ TODO:
 import tensorflow as tf
 import numpy as np
 
+def update_target_graph(from_scope,to_scope):
+	from_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, from_scope)
+	to_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, to_scope)
+	op_holder = []
+	for from_var,to_var in zip(from_vars,to_vars):
+		op_holder.append(to_var.assign(from_var))
+	return op_holder
 
 # ResBlock
 class ResBlock(object):
@@ -75,9 +82,10 @@ class ResBlock(object):
 			pool_size=(2, 2),
 			strides=(1, 1),
 		)
-		output = tf.nn.relu(max_pool)
+		# seems like the gradient should be added prior to the relu
 		if csn is not None:
-			output += tf.nn.relu(csn)
+			max_pool -= 1e-4 * csn
+		output = tf.nn.relu(max_pool)
 		self.outputs = tf.layers.dropout(
 			inputs=max_pool,
 			rate=0.5,
@@ -157,18 +165,18 @@ class MiniImageNetModel(object):
 		
 		self.logits = output
 		if csn["logits"] is not None:
-			self.logits += csn["logits"]
+			self.logits -= 1e-4 * csn["logits"]
 		self.predictions = tf.argmax(self.logits, axis=1)
 		self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.labels, logits=self.logits))
-		self.optimize = tf.train.MomentumOptimizer(learning_rate=1e-4, momentum=0.9).minimize(self.loss)
 
-		self.resblock_3_gradients = resblock_3.gradients
-		
-		# self.csn_gradients = {
-		# 	"resblock_3": resblock_3.gradients * tf.gradients(self.loss, tf.nn.softmax(self.logits)),
-		# 	"resblock_4": resblock_4.gradients * tf.gradients(self.loss, tf.nn.softmax(self.logits)),
-		# 	"logits": tf.gradients(self.loss, tf.nn.softmax(self.logits)),
-		# }
+		if csn["logits"] is None:
+			self.optimize = tf.train.MomentumOptimizer(learning_rate=1e-4, momentum=0.9).minimize(self.loss)
+
+			self.csn_gradients = {
+				"resblock_3": resblock_3.gradients[0],
+				"resblock_4": resblock_4.gradients[0],
+				"logits": tf.gradients(self.loss, self.logits)[0],
+			}
 
 	def save(self, sess, savepath, global_step=None, prefix="ckpt", verbose=False):
 		if savepath[-1] != '/':

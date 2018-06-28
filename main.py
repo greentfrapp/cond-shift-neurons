@@ -8,6 +8,7 @@ from absl import flags
 from absl import app
 
 from utils import MiniImageNetModel
+from utils import update_target_graph
 
 FLAGS = flags.FLAGS
 
@@ -54,16 +55,23 @@ def main(unused_args):
 		from keras.datasets import mnist
 		(x_train, y_train), (x_test, y_test) = mnist.load_data()
 
-		model = MiniImageNetModel("mnist", k=10)
+		dummy = MiniImageNetModel("dummy", k=10)
+		model = MiniImageNetModel("model", k=10, csn=dummy.csn_gradients)
 		sess = tf.Session()
 		sess.run(tf.global_variables_initializer())
+
+		copy_op = update_target_graph("dummy", "model")
+		sess.run(copy_op)
 
 		n_steps = 1000
 		batchsize = 64
 		rand_x = np.random.RandomState(1)
 		rand_y = np.random.RandomState(1)
 		start = 0
+		loss = []
 		for i in np.arange(n_steps):
+			if (i + 1) % 50 == 0:
+				print("Running Step #{}".format(i + 1))
 			end = int(start + batchsize)
 			if end > len(x_train):
 				end -= len(x_train)
@@ -80,16 +88,31 @@ def main(unused_args):
 				minibatch_y = y_train[start:end]
 			start = end
 			feed_dict = {
+				dummy.inputs: minibatch_x,
+				dummy.labels: minibatch_y,
+				dummy.is_training: False,
+			}
+
+			dummy_loss = sess.run(dummy.loss, feed_dict)
+			
+			feed_dict = {
+				dummy.inputs: minibatch_x,
+				dummy.labels: minibatch_y,
+				dummy.is_training: False,
 				model.inputs: minibatch_x,
 				model.labels: minibatch_y,
-				model.is_training: True,
+				model.is_training: False,
 			}
-			loss, _, csn = sess.run([model.loss, model.optimize, model.resblock_3_gradients], feed_dict)
-			print(csn)
-			quit()
-			if (i + 1) % 50 == 0:
-				print("Step {} - Loss {:.3f}".format(i + 1, loss))
-				model.save(sess, FLAGS.savepath, global_step=i+1)
+
+			model_loss = sess.run(model.loss, feed_dict)
+
+			print(dummy_loss - model_loss)
+
+			loss.append(dummy_loss - model_loss)
+
+			if i == 50:
+				print(np.mean(loss))
+				quit()
 
 	if FLAGS.test:
 		from keras.datasets import mnist
