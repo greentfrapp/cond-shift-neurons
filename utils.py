@@ -192,3 +192,65 @@ class MiniImageNetModel(object):
 		self.saver.restore(sess, ckpt)
 		if verbose:
 			print("Model loaded from {}.".format(ckpt))
+
+class MemoryKeyModel(object):
+
+	def __init__(self, inputs, units, name="memory_key"):
+		super(MemoryKeyModel, self).__init__()
+		self.name = name
+		self.inputs = inputs
+		with tf.variable_scope(self.name):
+			self.build_model(units)
+			variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.name)
+			self.saver = tf.train.Saver(var_list=variables, max_to_keep=1)
+
+	def build_model(self, units):
+
+		outputs = tf.layers.dense(
+			inputs=self.inputs,
+			units=32,
+			activation=tf.nn.relu,
+		)
+		outputs = tf.layers.dense(
+			inputs=outputs,
+			units=32,
+			activation=tf.nn.relu,
+		)
+		self.outputs = tf.layers.dense(
+			inputs=outputs,
+			units=units,
+			activation=None,
+		)
+
+# With the Direct Feedback implementation, this should act position-wise
+# Take C-dim vector per position and output a scalar
+class MemoryValueModel(object):
+
+	def __init__(self, inputs, name="memory_value"):
+		super(MemoryValueModel, self).__init__()
+		self.name = name
+		self.inputs = inputs
+		with tf.variable_scope(self.name):
+			self.build_model(units)
+			variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.name)
+			self.saver = tf.train.Saver(var_list=variables, max_to_keep=1)
+
+	def build_model(self, units):
+
+		outputs = tf.layers.dense(
+			inputs=self.inputs,
+			units=32,
+			activation=tf.nn.relu,
+		)
+		outputs = tf.layers.dense(
+			inputs=outputs,
+			units=32,
+			activation=tf.nn.relu,
+		)
+		self.outputs = tf.layers.dense(
+			inputs=outputs,
+			units=1,
+			activation=None,
+		)
+
+
