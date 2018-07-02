@@ -25,6 +25,7 @@ from absl import flags
 from absl import app
 
 from models import NewMiniImageNetModel, MemoryKeyModel, MemoryValueModel
+from data_generator import DataGenerator
 from utils import update_target_graph
 from tasks import MNISTFewShotTask
 
@@ -41,11 +42,57 @@ flags.DEFINE_string("savepath", "models/", "Path to save or load models")
 
 
 def main(unused_args):
+
+	if FLAGS.train:
+
+		update_batch_size = 1
+		num_classes = 5
+
+		data_generator = DataGenerator(
+			datasource='omniglot',
+			num_classes=5,
+			num_samples_per_class=2,
+			batch_size=4,
+			test_set=False,
+		)
+
+		# samples - (batch_size, num_classes * num_samples_per_class, 28 * 28)
+		# labels - (batch_size, num_classes * num_samples_per_class, num_classes)
+		image_tensor, label_tensor = data_generator.make_data_tensor(train=True)
+
+		train_inputs = tf.slice(image_tensor, [0,0,0], [-1,num_classes*update_batch_size, -1])
+		test_inputs = tf.slice(image_tensor, [0,num_classes*update_batch_size, 0], [-1,-1,-1])
+		train_labels = tf.slice(label_tensor, [0,0,0], [-1,num_classes*update_batch_size, -1])
+		test_labels = tf.slice(label_tensor, [0,num_classes*update_batch_size, 0], [-1,-1,-1])
+		input_tensors = {
+			'train_inputs': train_inputs,
+			'train_labels': train_labels,
+			'test_inputs': test_inputs,
+			'test_labels': test_labels,
+		}
+
+		model = NewMiniImageNetModel("model", n=5, input_tensors=input_tensors)
+
+		sess = tf.InteractiveSession()
+		tf.global_variables_initializer().run()
+		tf.train.start_queue_runners()
+
+		n_tasks = 50000
+		moving_avg = 0.
+		for i in np.arange(n_tasks):
+			loss, _, accuracy = sess.run([model.test_loss, model.optimize, model.test_accuracy], {model.is_training: False})
+			moving_avg = 0.1 * accuracy + 0.9 * moving_avg
+			if (i + 1) % 50 == 0:
+				print("Task #{} - Loss : {:.3f} - Acc : {:.3f}".format(i + 1, loss, moving_avg))
+
+
+
 	
 	if FLAGS.train_mnist:
 		task = MNISTFewShotTask()
 		model = NewMiniImageNetModel("model", n=3)
 		sess = tf.Session()
+		sess.run(tf.local_variables_initializer())
 		sess.run(tf.global_variables_initializer())
 
 		n_tasks = 20000
@@ -71,8 +118,8 @@ def main(unused_args):
 			# if i == 10:
 			# 	quit()
 
-			loss, _, predictions = sess.run([model.test_loss, model.optimize, model.test_predictions], feed_dict)
-			accuracy = np.sum(y_test == predictions) / len(y_test)
+			loss, _, accuracy = sess.run([model.test_loss, model.optimize, model.test_accuracy], feed_dict)
+			# accuracy = np.sum(y_test == predictions) / len(y_test)
 			# accuracy = np.sum(y_train == predictions) / len(y_train)
 
 			moving_avg = 0.1 * accuracy + 0.9 * moving_avg
@@ -87,8 +134,9 @@ def main(unused_args):
 					model.test_labels: np.eye(3)[np.array(y_test, dtype=np.int32)],
 					model.is_training: False,
 				}
-				predictions = sess.run(model.test_predictions, feed_dict)
-				accuracy = np.sum(y_test == predictions) / len(y_test)
+				accuracy = sess.run(model.test_accuracy, feed_dict)
+				# predictions = sess.run(model.test_predictions, feed_dict)
+				# accuracy = np.sum(y_test == predictions) / len(y_test)
 				
 				print("Task #{} - Loss : {:.3f} - Acc : {:.3f} - Test Acc : {:.3f}".format(i + 1, loss, moving_avg, accuracy))
 

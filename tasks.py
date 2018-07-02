@@ -1,5 +1,8 @@
 
 import numpy as np
+import tensorflow as tf
+
+from data_generator import DataGenerator, OmniglotGenerator
 
 mnist_imported = False
 
@@ -49,3 +52,36 @@ class MNISTFewShotTask(object):
 		self.rand_y.shuffle(y_test)
 
 		return (x_train, y_train), (x_test[:test_size], y_test[:test_size])
+
+class OmniglotTask(object):
+
+	def __init__(self):
+		super(OmniglotTask, self).__init__()
+		self.data_generator = DataGenerator(
+			datasource='omniglot',
+			num_classes=5,
+			num_samples_per_class=1,
+			batch_size=1,
+		)
+		# self.data_generator.generate()
+		samples, labels = self.data_generator.make_data_tensor()
+		sess = tf.InteractiveSession()
+		# print(sess.run(samples).shape)
+		# print(sess.run(labels).shape)
+
+		tf.global_variables_initializer().run()
+		tf.train.start_queue_runners()
+
+		dense = tf.layers.dense(
+			inputs=samples,
+			units=5,
+			activation=None,
+		)
+		sess.run(tf.global_variables_initializer())
+		print(sess.run(samples).shape)
+
+
+
+
+if __name__ == "__main__":
+	task = OmniglotTask()

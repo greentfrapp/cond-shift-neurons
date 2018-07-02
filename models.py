@@ -295,35 +295,44 @@ class MiniImageNetModel(object):
 # v2 integrating both train(dummy) and test(model) models
 class NewMiniImageNetModel(object):
 
-	def __init__(self, name, n=5):
+	def __init__(self, name, n=5, input_tensors=None):
 		super(NewMiniImageNetModel, self).__init__()
 		self.name = name
 		with tf.variable_scope(self.name):
-			self.build_model(n)
+			self.build_model(n, input_tensors)
 			variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.name)
 			self.saver = tf.train.Saver(var_list=variables, max_to_keep=1)
 
-	def build_model(self, n):
-		self.train_inputs = tf.placeholder(
-			shape=(None, 28, 28, 1),
-			dtype=tf.float32,
-			name="train_inputs",
-		)
-		self.train_labels = tf.placeholder(
-			shape=(None, n),
-			dtype=tf.float32,
-			name="train_labels",
-		)
-		self.test_inputs = tf.placeholder(
-			shape=(None, 28, 28, 1),
-			dtype=tf.float32,
-			name="test_inputs"
-		)
-		self.test_labels = tf.placeholder(
-			shape=(None, n),
-			dtype=tf.float32,
-			name="test_labels",
-		)
+	def build_model(self, n, input_tensors=None):
+
+		if input_tensors is None:
+			self.train_inputs = tf.placeholder(
+				shape=(None, 28, 28, 1),
+				dtype=tf.float32,
+				name="train_inputs",
+			)
+			self.train_labels = tf.placeholder(
+				shape=(None, n),
+				dtype=tf.float32,
+				name="train_labels",
+			)
+			self.test_inputs = tf.placeholder(
+				shape=(None, 28, 28, 1),
+				dtype=tf.float32,
+				name="test_inputs"
+			)
+			self.test_labels = tf.placeholder(
+				shape=(None, n),
+				dtype=tf.float32,
+				name="test_labels",
+			)
+
+		else:
+			self.train_inputs = tf.reshape(input_tensors['train_inputs'], [-1, 28, 28, 1])
+			self.train_labels = tf.reshape(input_tensors['train_labels'], [-1, n])
+			self.test_inputs = tf.reshape(input_tensors['test_inputs'], [-1, 28, 28, 1])
+			self.test_labels = tf.reshape(input_tensors['test_labels'], [-1, n])
+
 		self.is_training = tf.placeholder(
 			shape=(None),
 			dtype=tf.bool,
@@ -399,9 +408,11 @@ class NewMiniImageNetModel(object):
 
 		self.test_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.test_labels, logits=self.miniresnet_test.logits))
 
-		self.optimize = tf.train.MomentumOptimizer(learning_rate=1e-4, momentum=0.9).minimize(self.test_loss)
+		self.optimize = tf.train.MomentumOptimizer(learning_rate=1e-3, momentum=0.9).minimize(self.test_loss)
 
 		self.test_predictions = tf.argmax(self.miniresnet_test.logits, axis=1)
+
+		self.test_accuracy = tf.contrib.metrics.accuracy(labels=tf.argmax(self.test_labels, axis=1), predictions=self.test_predictions)
 
 	def save(self, sess, savepath, global_step=None, prefix="ckpt", verbose=False):
 		if savepath[-1] != '/':
