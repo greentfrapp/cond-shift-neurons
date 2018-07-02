@@ -34,6 +34,7 @@ class ResBlock(object):
 			inputs=conv_1,
 			scope="bn_1",
 			reuse=tf.AUTO_REUSE,
+			is_training=is_training,
 		)
 		conv_2 = tf.layers.conv2d(
 			inputs=bn_1,
@@ -49,6 +50,7 @@ class ResBlock(object):
 			inputs=conv_2,
 			scope="bn_2",
 			reuse=tf.AUTO_REUSE,
+			is_training=is_training,
 		)
 		conv_3 = tf.layers.conv2d(
 			inputs=bn_2,
@@ -64,6 +66,7 @@ class ResBlock(object):
 			inputs=conv_3,
 			scope="bn_3",
 			reuse=tf.AUTO_REUSE,
+			is_training=is_training,
 		)
 		res_conv = tf.layers.conv2d(
 			inputs=self.inputs,
@@ -81,11 +84,11 @@ class ResBlock(object):
 			strides=(1, 1),
 		)
 		# seems like the gradient should be added prior to the relu
-		# if csn is not None:
-		# 	max_pool += csn[self.name]
-		output = tf.nn.relu(max_pool)
 		if csn is not None:
-			output += tf.nn.relu(csn[self.name])
+			max_pool += csn[self.name]
+		output = tf.nn.relu(max_pool)
+		# if csn is not None:
+		# 	output += tf.nn.relu(csn[self.name])
 		self.outputs = tf.layers.dropout(
 			inputs=max_pool,
 			rate=0.5,
@@ -367,16 +370,28 @@ class NewMiniImageNetModel(object):
 			"logits": csn_gradients[2][:, :, 0],
 		}
 
+		# self.train_values = train_values = {
+		# 	"resblock_3": -1e0 * tf.reshape(self.miniresnet_train.resblock_3.gradients[0], [-1, 25 * 25 * 128]),
+		# 	"resblock_4": -1e0 * tf.reshape(self.miniresnet_train.resblock_4.gradients[0], [-1, 24 * 24 * 256]),
+		# 	"logits": -1e0 * tf.gradients(self.train_loss, self.miniresnet_train.logits)[0],
+		# }
+
 		# Calculating Value for Test Key
 
 		dotp = tf.matmul(test_keys, train_keys, transpose_b=True)
-		attention_weights = tf.nn.softmax(dotp)
+		self.attention_weights = attention_weights = tf.nn.softmax(dotp)
 		csn = dict(zip(train_values.keys(), [tf.matmul(attention_weights, value) for value in train_values.values()]))
 		self.csn = {
 			"resblock_3": tf.reshape(csn["resblock_3"], [-1, 25, 25, 128]),
 			"resblock_4": tf.reshape(csn["resblock_4"], [-1, 24, 24, 256]),
 			"logits": tf.reshape(csn["logits"], [-1, n]),
 		}
+
+		# self.csn = {
+		# 	"resblock_3": -1e0 * self.miniresnet_train.resblock_3.gradients[0][0],
+		# 	"resblock_4": -1e0 * self.miniresnet_train.resblock_4.gradients[0][0],
+		# 	"logits": -1e0 * tf.gradients(self.train_loss, self.miniresnet_train.logits)[0][0],
+		# }
 
 		# Finally, pass CSN values to MiniResNet
 
