@@ -107,7 +107,7 @@ def main(unused_args):
 				accuracy, summary = sess.run([model_val.test_accuracy, model_val.summary], {model.is_training: False})
 				# model_val.writer.add_summary(summary, i)
 				# accuracy = None
-				print("Task #{} - Loss : {:.3f} - Acc : {:.3f} - Val Acc : {}".format(i + 1, loss, moving_avg, accuracy))
+				print("Task #{} - Loss : {:.3f} - Acc : {:.3f} - Val Acc : {:.3f}".format(i + 1, loss, moving_avg, accuracy))
 
 	if FLAGS.train_mnist:
 		task = MNISTFewShotTask()
