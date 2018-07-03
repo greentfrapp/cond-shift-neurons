@@ -339,6 +339,8 @@ class NewMiniImageNetModel(object):
 			name="is_training",
 		)
 
+		batch_size = tf.shape(self.train_inputs)[0]
+
 		self.inputs = tf.concat([self.train_inputs, self.test_inputs], axis=0)
 		self.labels = tf.concat([self.train_labels, self.test_labels], axis=0)
 
@@ -358,8 +360,8 @@ class NewMiniImageNetModel(object):
 			[tf.shape(self.train_inputs)[0], tf.shape(self.test_inputs)[0]],
 			axis=0,
 		)
-		self.train_keys = train_keys = keys[0]
-		self.test_keys = test_keys = keys[1]
+		self.train_keys = train_keys = keys[0].reshape(batch_size, -1, 32)
+		self.test_keys = test_keys = keys[1].reshape(batch_size, -1, 32)
 
 		# - Values
 
@@ -374,9 +376,9 @@ class NewMiniImageNetModel(object):
 		csn_gradients = self.memory_value_model.outputs
 		csn_gradients = tf.split(csn_gradients, [25 * 25 * 128, 24 * 24 * 256, n], axis=1)
 		train_values = {
-			"resblock_3": csn_gradients[0][:, :, 0],
-			"resblock_4": csn_gradients[1][:, :, 0],
-			"logits": csn_gradients[2][:, :, 0],
+			"resblock_3": csn_gradients[0][:, :, 0].reshape(batch_size, -1, 25 * 25 * 128),
+			"resblock_4": csn_gradients[1][:, :, 0].reshape(batch_size, -1, 24 * 24 * 256),
+			"logits": csn_gradients[2][:, :, 0].reshape(batch_size, -1, n),
 		}
 
 		# self.train_values = train_values = {
