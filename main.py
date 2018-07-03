@@ -52,7 +52,7 @@ def main(unused_args):
 			datasource='omniglot',
 			num_classes=5,
 			num_samples_per_class=2,
-			batch_size=4,
+			batch_size=1,
 			test_set=False,
 		)
 
@@ -65,10 +65,10 @@ def main(unused_args):
 		train_labels = tf.slice(label_tensor, [0,0,0], [-1,num_classes*update_batch_size, -1])
 		test_labels = tf.slice(label_tensor, [0,num_classes*update_batch_size, 0], [-1,-1,-1])
 		input_tensors = {
-			'train_inputs': train_inputs,
-			'train_labels': train_labels,
-			'test_inputs': test_inputs,
-			'test_labels': test_labels,
+			'train_inputs': train_inputs, # batch_size, num_classes * (num_samples_per_class - update_batch_size), 28 * 28
+			'train_labels': train_labels, # batch_size, num_classes * (num_samples_per_class - update_batch_size), num_classes
+			'test_inputs': test_inputs, # batch_size, num_classes * update_batch_size, 28 * 28
+			'test_labels': test_labels, # batch_size, num_classes * update_batch_size, num_classes
 		}
 
 		model = NewMiniImageNetModel("model", n=5, input_tensors=input_tensors)
@@ -84,9 +84,6 @@ def main(unused_args):
 			moving_avg = 0.1 * accuracy + 0.9 * moving_avg
 			if (i + 1) % 50 == 0:
 				print("Task #{} - Loss : {:.3f} - Acc : {:.3f}".format(i + 1, loss, moving_avg))
-
-
-
 	
 	if FLAGS.train_mnist:
 		task = MNISTFewShotTask()

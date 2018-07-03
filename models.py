@@ -358,8 +358,8 @@ class NewMiniImageNetModel(object):
 			[tf.shape(self.train_inputs)[0], tf.shape(self.test_inputs)[0]],
 			axis=0,
 		)
-		train_keys = keys[0]
-		test_keys = keys[1]
+		self.train_keys = train_keys = keys[0]
+		self.test_keys = test_keys = keys[1]
 
 		# - Values
 
