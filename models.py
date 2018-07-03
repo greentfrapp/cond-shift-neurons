@@ -295,13 +295,15 @@ class MiniImageNetModel(object):
 # v2 integrating both train(dummy) and test(model) models
 class NewMiniImageNetModel(object):
 
-	def __init__(self, name, n=5, input_tensors=None):
+	def __init__(self, name, n=5, input_tensors=None, logdir=None):
 		super(NewMiniImageNetModel, self).__init__()
 		self.name = name
-		with tf.variable_scope(self.name):
+		with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
 			self.build_model(n, input_tensors)
 			variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.name)
 			self.saver = tf.train.Saver(var_list=variables, max_to_keep=1)
+			if logdir is not None:
+				self.writer = tf.summary.FileWriter(logdir)
 
 	def build_model(self, n, input_tensors=None):
 
@@ -409,12 +411,16 @@ class NewMiniImageNetModel(object):
 		self.miniresnet_test = MiniResNet(self.test_inputs, n, "miniresnet", self, self.is_training, self.csn)
 
 		self.test_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.test_labels, logits=self.miniresnet_test.logits))
+		tf.summary.scalar('episode_test_loss', self.test_loss)
 
 		self.optimize = tf.train.MomentumOptimizer(learning_rate=1e-3, momentum=0.9).minimize(self.test_loss)
 
 		self.test_predictions = tf.argmax(self.miniresnet_test.logits, axis=1)
 
 		self.test_accuracy = tf.contrib.metrics.accuracy(labels=tf.argmax(self.test_labels, axis=1), predictions=self.test_predictions)
+		tf.summary.scalar('episode_test_accuracy', self.test_accuracy)
+
+		self.summary = tf.summary.merge_all()
 
 	def save(self, sess, savepath, global_step=None, prefix="ckpt", verbose=False):
 		if savepath[-1] != '/':

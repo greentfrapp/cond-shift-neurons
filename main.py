@@ -39,6 +39,7 @@ flags.DEFINE_bool("test", False, "Test")
 
 # Training parameters
 flags.DEFINE_string("savepath", "models/", "Path to save or load models")
+flags.DEFINE_string("logdir", "log/", "Path to save Tensorboard summaries")
 
 
 def main(unused_args):
@@ -58,12 +59,12 @@ def main(unused_args):
 
 		# samples - (batch_size, num_classes * num_samples_per_class, 28 * 28)
 		# labels - (batch_size, num_classes * num_samples_per_class, num_classes)
-		image_tensor, label_tensor = data_generator.make_data_tensor(train=True)
+		train_image_tensor, train_label_tensor = data_generator.make_data_tensor(train=True)
 
-		train_inputs = tf.slice(image_tensor, [0,0,0], [-1,num_classes*update_batch_size, -1])
-		test_inputs = tf.slice(image_tensor, [0,num_classes*update_batch_size, 0], [-1,-1,-1])
-		train_labels = tf.slice(label_tensor, [0,0,0], [-1,num_classes*update_batch_size, -1])
-		test_labels = tf.slice(label_tensor, [0,num_classes*update_batch_size, 0], [-1,-1,-1])
+		train_inputs = tf.slice(train_image_tensor, [0,0,0], [-1,num_classes*update_batch_size, -1])
+		test_inputs = tf.slice(train_image_tensor, [0,num_classes*update_batch_size, 0], [-1,-1,-1])
+		train_labels = tf.slice(train_label_tensor, [0,0,0], [-1,num_classes*update_batch_size, -1])
+		test_labels = tf.slice(train_label_tensor, [0,num_classes*update_batch_size, 0], [-1,-1,-1])
 		input_tensors = {
 			'train_inputs': train_inputs, # batch_size, num_classes * (num_samples_per_class - update_batch_size), 28 * 28
 			'train_labels': train_labels, # batch_size, num_classes * (num_samples_per_class - update_batch_size), num_classes
@@ -71,7 +72,21 @@ def main(unused_args):
 			'test_labels': test_labels, # batch_size, num_classes * update_batch_size, num_classes
 		}
 
-		model = NewMiniImageNetModel("model", n=5, input_tensors=input_tensors)
+		model = NewMiniImageNetModel("model", n=5, input_tensors=input_tensors, logdir=FLAGS.logdir + "train")
+
+		# Construct graph for validation
+		val_image_tensor, val_label_tensor = data_generator.make_data_tensor(train=False)
+		train_inputs = tf.slice(val_image_tensor, [0,0,0], [-1,num_classes*update_batch_size, -1])
+		test_inputs = tf.slice(val_image_tensor, [0,num_classes*update_batch_size, 0], [-1,-1,-1])
+		train_labels = tf.slice(val_label_tensor, [0,0,0], [-1,num_classes*update_batch_size, -1])
+		test_labels = tf.slice(val_label_tensor, [0,num_classes*update_batch_size, 0], [-1,-1,-1])
+		input_tensors = {
+			'train_inputs': train_inputs, # batch_size, num_classes * (num_samples_per_class - update_batch_size), 28 * 28
+			'train_labels': train_labels, # batch_size, num_classes * (num_samples_per_class - update_batch_size), num_classes
+			'test_inputs': test_inputs, # batch_size, num_classes * update_batch_size, 28 * 28
+			'test_labels': test_labels, # batch_size, num_classes * update_batch_size, num_classes
+		}
+		model_val = NewMiniImageNetModel("model", n=5, input_tensors=input_tensors, logdir=FLAGS.logdir + "val")
 
 		sess = tf.InteractiveSession()
 		tf.global_variables_initializer().run()
@@ -80,11 +95,15 @@ def main(unused_args):
 		n_tasks = 50000
 		moving_avg = 0.
 		for i in np.arange(n_tasks):
-			loss, _, accuracy = sess.run([model.test_loss, model.optimize, model.test_accuracy], {model.is_training: False})
+			loss, _, accuracy, summary = sess.run([model.test_loss, model.optimize, model.test_accuracy, model.summary], {model.is_training: False})
 			moving_avg = 0.1 * accuracy + 0.9 * moving_avg
 			if (i + 1) % 50 == 0:
-				print("Task #{} - Loss : {:.3f} - Acc : {:.3f}".format(i + 1, loss, moving_avg))
-	
+				model.writer.add_summary(summary, i)
+				# Validation
+				accuracy, summary = sess.run([model_val.test_accuracy, model_val.summary], {model.is_training: False})
+				model_val.writer.add_summary(summary, i)
+				print("Task #{} - Loss : {:.3f} - Acc : {:.3f} - Val Acc : {:.3f}".format(i + 1, loss, moving_avg, accuracy))
+
 	if FLAGS.train_mnist:
 		task = MNISTFewShotTask()
 		model = NewMiniImageNetModel("model", n=3)
