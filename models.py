@@ -295,17 +295,17 @@ class MiniImageNetModel(object):
 # v2 integrating both train(dummy) and test(model) models
 class NewMiniImageNetModel(object):
 
-	def __init__(self, name, n=5, input_tensors=None, logdir=None):
+	def __init__(self, name, n=5, input_tensors=None, logdir=None, is_training=None):
 		super(NewMiniImageNetModel, self).__init__()
 		self.name = name
 		with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
-			self.build_model(n, input_tensors)
+			self.build_model(n, input_tensors, is_training)
 			variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.name)
 			self.saver = tf.train.Saver(var_list=variables, max_to_keep=1)
 			if logdir is not None:
 				self.writer = tf.summary.FileWriter(logdir)
 
-	def build_model(self, n, input_tensors=None):
+	def build_model(self, n, input_tensors=None, is_training=None):
 
 		if input_tensors is None:
 			self.train_inputs = tf.placeholder(
@@ -335,13 +335,16 @@ class NewMiniImageNetModel(object):
 			self.test_inputs = tf.reshape(input_tensors['test_inputs'], [-1, 28, 28, 1])
 			self.test_labels = tf.reshape(input_tensors['test_labels'], [-1, n])
 
-		self.is_training = tf.placeholder(
-			shape=(None),
-			dtype=tf.bool,
-			name="is_training",
-		)
+		if is_training is None:
+			self.is_training = tf.placeholder(
+				shape=(None),
+				dtype=tf.bool,
+				name="is_training",
+			)
+		else:
+			self.is_training = is_training
 
-		batch_size = tf.shape(self.train_inputs)[0]
+		batch_size = tf.shape(input_tensors['train_inputs'])[0]
 
 		self.inputs = tf.concat([self.train_inputs, self.test_inputs], axis=0)
 		self.labels = tf.concat([self.train_labels, self.test_labels], axis=0)
@@ -362,8 +365,8 @@ class NewMiniImageNetModel(object):
 			[tf.shape(self.train_inputs)[0], tf.shape(self.test_inputs)[0]],
 			axis=0,
 		)
-		self.train_keys = train_keys = keys[0].reshape(batch_size, -1, 32)
-		self.test_keys = test_keys = keys[1].reshape(batch_size, -1, 32)
+		self.train_keys = train_keys = tf.reshape(keys[0], [batch_size, -1, 32])
+		self.test_keys = test_keys = tf.reshape(keys[1], [batch_size, -1, 32])
 
 		# - Values
 
@@ -373,14 +376,21 @@ class NewMiniImageNetModel(object):
 			"logits": tf.expand_dims(tf.gradients(self.train_loss, self.miniresnet_train.logits)[0], axis=2) * tf.expand_dims(tf.gradients(self.train_loss, self.miniresnet_train.logits)[0], axis=1),
 		}
 
-		csn_gradients = tf.concat(list(csn_gradients.values()), axis=1)
-		self.memory_value_model = MemoryValueModel(csn_gradients, self)
-		csn_gradients = self.memory_value_model.outputs
-		csn_gradients = tf.split(csn_gradients, [25 * 25 * 128, 24 * 24 * 256, n], axis=1)
+		# csn_gradients = tf.concat(list(csn_gradients.values()), axis=1)
+		self.memory_value_model_resblock_3 = MemoryValueModel(csn_gradients["resblock_3"], self)
+		self.memory_value_model_resblock_4 = MemoryValueModel(csn_gradients["resblock_4"], self)
+		self.memory_value_model_logits = MemoryValueModel(csn_gradients["logits"], self)
+		# csn_gradients = self.memory_value_model.outputs
+		# csn_gradients = tf.split(csn_gradients, [25 * 25 * 128, 24 * 24 * 256, n], axis=1)
+		# train_values = {
+		# 	"resblock_3": tf.reshape(csn_gradients[0][:, :, 0], [batch_size, -1, 25 * 25 * 128]),
+		# 	"resblock_4": tf.reshape(csn_gradients[1][:, :, 0], [batch_size, -1, 24 * 24 * 256]),
+		# 	"logits": tf.reshape(csn_gradients[2][:, :, 0], [batch_size, -1, n]),
+		# }
 		train_values = {
-			"resblock_3": csn_gradients[0][:, :, 0].reshape(batch_size, -1, 25 * 25 * 128),
-			"resblock_4": csn_gradients[1][:, :, 0].reshape(batch_size, -1, 24 * 24 * 256),
-			"logits": csn_gradients[2][:, :, 0].reshape(batch_size, -1, n),
+			"resblock_3": tf.reshape(self.memory_value_model_resblock_3.outputs, [batch_size, -1, 25 * 25 * 128]),
+			"resblock_4": tf.reshape(self.memory_value_model_resblock_4.outputs, [batch_size, -1, 24 * 24 * 256]),
+			"logits": tf.reshape(self.memory_value_model_logits.outputs, [batch_size, -1, n]),
 		}
 
 		# self.train_values = train_values = {
@@ -476,7 +486,7 @@ class MemoryValueModel(object):
 		super(MemoryValueModel, self).__init__()
 		self.name = name
 		self.inputs = inputs
-		with tf.variable_scope(self.name):
+		with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
 			self.build_model()
 			variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, parent.name + '/' + self.name)
 			self.saver = tf.train.Saver(var_list=variables, max_to_keep=1)
@@ -487,16 +497,22 @@ class MemoryValueModel(object):
 			inputs=self.inputs,
 			units=32,
 			activation=tf.nn.relu,
+			reuse=tf.AUTO_REUSE,
+			name="dense_1",
 		)
 		outputs = tf.layers.dense(
 			inputs=outputs,
 			units=32,
 			activation=tf.nn.relu,
+			reuse=tf.AUTO_REUSE,
+			name="dense_2",
 		)
 		self.outputs = tf.layers.dense(
 			inputs=outputs,
 			units=1,
 			activation=None,
+			reuse=tf.AUTO_REUSE,
+			name="output",
 		)
 
 

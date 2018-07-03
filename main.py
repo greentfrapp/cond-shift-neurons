@@ -47,13 +47,13 @@ def main(unused_args):
 	if FLAGS.train:
 
 		update_batch_size = 1
-		num_classes = 5
+		num_classes = 2
 
 		data_generator = DataGenerator(
 			datasource='omniglot',
-			num_classes=5,
+			num_classes=num_classes,
 			num_samples_per_class=2,
-			batch_size=1,
+			batch_size=5,
 			test_set=False,
 		)
 
@@ -72,7 +72,7 @@ def main(unused_args):
 			'test_labels': test_labels, # batch_size, num_classes * update_batch_size, num_classes
 		}
 
-		model = NewMiniImageNetModel("model", n=5, input_tensors=input_tensors, logdir=FLAGS.logdir + "train")
+		model = NewMiniImageNetModel("model", n=2, input_tensors=input_tensors, logdir=FLAGS.logdir + "train")
 
 		# Construct graph for validation
 		val_image_tensor, val_label_tensor = data_generator.make_data_tensor(train=False)
@@ -86,11 +86,15 @@ def main(unused_args):
 			'test_inputs': test_inputs, # batch_size, num_classes * update_batch_size, 28 * 28
 			'test_labels': test_labels, # batch_size, num_classes * update_batch_size, num_classes
 		}
-		model_val = NewMiniImageNetModel("model", n=5, input_tensors=input_tensors, logdir=FLAGS.logdir + "val")
+		model_val = NewMiniImageNetModel("model", n=2, input_tensors=input_tensors, logdir=FLAGS.logdir + "val", is_training=model.is_training)
 
 		sess = tf.InteractiveSession()
 		tf.global_variables_initializer().run()
 		tf.train.start_queue_runners()
+
+		# for key,val in sess.run(input_tensors).items():
+		# 	print(key)
+		# 	print(val.shape)
 
 		n_tasks = 50000
 		moving_avg = 0.
@@ -98,11 +102,12 @@ def main(unused_args):
 			loss, _, accuracy, summary = sess.run([model.test_loss, model.optimize, model.test_accuracy, model.summary], {model.is_training: False})
 			moving_avg = 0.1 * accuracy + 0.9 * moving_avg
 			if (i + 1) % 50 == 0:
-				model.writer.add_summary(summary, i)
+				# model.writer.add_summary(summary, i)
 				# Validation
 				accuracy, summary = sess.run([model_val.test_accuracy, model_val.summary], {model.is_training: False})
-				model_val.writer.add_summary(summary, i)
-				print("Task #{} - Loss : {:.3f} - Acc : {:.3f} - Val Acc : {:.3f}".format(i + 1, loss, moving_avg, accuracy))
+				# model_val.writer.add_summary(summary, i)
+				# accuracy = None
+				print("Task #{} - Loss : {:.3f} - Acc : {:.3f} - Val Acc : {}".format(i + 1, loss, moving_avg, accuracy))
 
 	if FLAGS.train_mnist:
 		task = MNISTFewShotTask()
