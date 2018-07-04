@@ -98,7 +98,7 @@ def main(unused_args):
 
 		n_steps = 30000
 		moving_avg_accuracy = 0.
-		min_val_loss = np.inf
+		min_val_losses = [np.inf] * 5
 		for step in np.arange(n_steps):
 			loss, _, accuracy, summary = sess.run([model.test_loss, model.optimize, model.test_accuracy, model.summary], {model.is_training: False})
 			moving_avg_accuracy = 0.1 * accuracy + 0.9 * moving_avg_accuracy
@@ -110,8 +110,8 @@ def main(unused_args):
 				# accuracy = None
 				# print("Task #{} - Loss : {:.3f} - Acc : {:.3f} - Val Acc : {:.3f}".format(i + 1, loss, moving_avg, accuracy))
 				print("Step #{} - Loss : {:.3f} - Acc : {:.3f} - Val Loss : {:.3f} - Val Acc : {:.3f}".format(step, loss, moving_avg_accuracy, val_loss, val_accuracy))
-				if val_loss < min_val_loss:
-					min_val_loss = val_loss
+				if val_loss < np.max(min_val_losses):
+					min_val_losses[np.argmax(min_val_losses)] = val_loss
 					model.save(sess, FLAGS.savepath, global_step=step, verbose=True)
 
 	if FLAGS.test:
