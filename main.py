@@ -24,7 +24,7 @@ import matplotlib.pyplot as plt
 from absl import flags
 from absl import app
 
-from models import NewMiniImageNetModel, MemoryKeyModel, MemoryValueModel
+from models import NewMiniImageNetModel, adaCNNModel
 from data_generator import DataGenerator
 from utils import update_target_graph
 from tasks import MNISTFewShotTask
@@ -32,6 +32,7 @@ from tasks import MNISTFewShotTask
 FLAGS = flags.FLAGS
 
 flags.DEFINE_bool("train_mnist", False, "Train")
+flags.DEFINE_bool("test_mnist", False, "Test")
 
 # Commands
 flags.DEFINE_bool("train", False, "Train")
@@ -47,7 +48,7 @@ def main(unused_args):
 	if FLAGS.train:
 
 		update_batch_size = 1
-		num_classes = 2
+		num_classes = 5
 
 		data_generator = DataGenerator(
 			datasource='omniglot',
@@ -60,6 +61,7 @@ def main(unused_args):
 		# samples - (batch_size, num_classes * num_samples_per_class, 28 * 28)
 		# labels - (batch_size, num_classes * num_samples_per_class, num_classes)
 		train_image_tensor, train_label_tensor = data_generator.make_data_tensor(train=True)
+		# train_image_tensor, train_label_tensor = data_generator.make_data_tensor(train=False)
 
 		train_inputs = tf.slice(train_image_tensor, [0,0,0], [-1,num_classes*update_batch_size, -1])
 		test_inputs = tf.slice(train_image_tensor, [0,num_classes*update_batch_size, 0], [-1,-1,-1])
@@ -72,7 +74,8 @@ def main(unused_args):
 			'test_labels': test_labels, # batch_size, num_classes * update_batch_size, num_classes
 		}
 
-		model = NewMiniImageNetModel("model", n=2, input_tensors=input_tensors, logdir=FLAGS.logdir + "train")
+		model = adaCNNModel("model", num_classes=num_classes, input_tensors=input_tensors, logdir=None)
+		# model = NewMiniImageNetModel("model", n=num_classes, input_tensors=input_tensors, logdir=FLAGS.logdir + "train")
 
 		# Construct graph for validation
 		val_image_tensor, val_label_tensor = data_generator.make_data_tensor(train=False)
@@ -86,28 +89,75 @@ def main(unused_args):
 			'test_inputs': test_inputs, # batch_size, num_classes * update_batch_size, 28 * 28
 			'test_labels': test_labels, # batch_size, num_classes * update_batch_size, num_classes
 		}
-		model_val = NewMiniImageNetModel("model", n=2, input_tensors=input_tensors, logdir=FLAGS.logdir + "val", is_training=model.is_training)
+		model_val = adaCNNModel("model", num_classes=num_classes, input_tensors=input_tensors, logdir=None, is_training=model.is_training)
+		# model_val = NewMiniImageNetModel("model", n=num_classes, input_tensors=input_tensors, logdir=FLAGS.logdir + "val", is_training=model.is_training)
 
 		sess = tf.InteractiveSession()
 		tf.global_variables_initializer().run()
 		tf.train.start_queue_runners()
 
-		# for key,val in sess.run(input_tensors).items():
-		# 	print(key)
-		# 	print(val.shape)
-
-		n_tasks = 50000
+		n_steps = 30000
 		moving_avg = 0.
-		for i in np.arange(n_tasks):
+		min_val_loss = np.inf
+		for step in np.arange(n_steps):
 			loss, _, accuracy, summary = sess.run([model.test_loss, model.optimize, model.test_accuracy, model.summary], {model.is_training: False})
-			moving_avg = 0.1 * accuracy + 0.9 * moving_avg
-			if (i + 1) % 50 == 0:
+			moving_avg_accuracy = 0.1 * accuracy + 0.9 * moving_avg
+			if step % 50 == 0:
 				# model.writer.add_summary(summary, i)
 				# Validation
-				accuracy, summary = sess.run([model_val.test_accuracy, model_val.summary], {model.is_training: False})
+				val_accuracy, val_loss, summary = sess.run([model_val.test_accuracy, model_val.test_loss, model_val.summary], {model.is_training: False})
 				# model_val.writer.add_summary(summary, i)
 				# accuracy = None
-				print("Task #{} - Loss : {:.3f} - Acc : {:.3f} - Val Acc : {:.3f}".format(i + 1, loss, moving_avg, accuracy))
+				# print("Task #{} - Loss : {:.3f} - Acc : {:.3f} - Val Acc : {:.3f}".format(i + 1, loss, moving_avg, accuracy))
+				print("Step #{} - Loss : {:.3f} - Acc : {:.3f} - Val Loss : {:.3f} - Val Acc : {:.3f}".format(step, loss, moving_avg_accuracy, val_loss, val_accuracy))
+				if val_loss < min_val_loss:
+					min_val_loss = val_loss
+					model.save(sess, FLAGS.savepath, global_step=step, verbose=True)
+
+	if FLAGS.test:
+
+		update_batch_size = 1
+		num_classes = 5
+
+		data_generator = DataGenerator(
+			datasource='omniglot',
+			num_classes=num_classes,
+			num_samples_per_class=2,
+			batch_size=5,
+			test_set=True,
+		)
+
+		# samples - (batch_size, num_classes * num_samples_per_class, 28 * 28)
+		# labels - (batch_size, num_classes * num_samples_per_class, num_classes)
+		train_image_tensor, train_label_tensor = data_generator.make_data_tensor(train=False)
+
+		train_inputs = tf.slice(train_image_tensor, [0,0,0], [-1,num_classes*update_batch_size, -1])
+		test_inputs = tf.slice(train_image_tensor, [0,num_classes*update_batch_size, 0], [-1,-1,-1])
+		train_labels = tf.slice(train_label_tensor, [0,0,0], [-1,num_classes*update_batch_size, -1])
+		test_labels = tf.slice(train_label_tensor, [0,num_classes*update_batch_size, 0], [-1,-1,-1])
+		input_tensors = {
+			'train_inputs': train_inputs, # batch_size, num_classes * (num_samples_per_class - update_batch_size), 28 * 28
+			'train_labels': train_labels, # batch_size, num_classes * (num_samples_per_class - update_batch_size), num_classes
+			'test_inputs': test_inputs, # batch_size, num_classes * update_batch_size, 28 * 28
+			'test_labels': test_labels, # batch_size, num_classes * update_batch_size, num_classes
+		}
+
+		model = adaCNNModel("model", num_classes=num_classes, input_tensors=input_tensors, logdir=None)
+
+		sess = tf.InteractiveSession()
+		model.load(sess, FLAGS.savepath, verbose=True)
+		# tf.global_variables_initializer().run()
+		tf.train.start_queue_runners()
+
+		accuracy_list = []
+
+		for batch in np.arange(120):
+			accuracy = sess.run(model.test_accuracy, {model.is_training: False})
+			print("Batch #{} - Test Acc : {:.3f}".format(batch, accuracy))
+			accuracy_list.append(accuracy)
+
+		print("\nEnd of Test - Mean Accuracy - {:.3f}".format(np.mean(accuracy_list)))
+				
 
 	if FLAGS.train_mnist:
 		task = MNISTFewShotTask()
@@ -162,7 +212,7 @@ def main(unused_args):
 				print("Task #{} - Loss : {:.3f} - Acc : {:.3f} - Test Acc : {:.3f}".format(i + 1, loss, moving_avg, accuracy))
 
 
-	if FLAGS.test:
+	if FLAGS.test_mnist:
 		from keras.datasets import mnist
 		(x_train, y_train), (x_test, y_test) = mnist.load_data()
 

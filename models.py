@@ -2,6 +2,8 @@
 
 Models
 
+NOTE: Changed inputs of self.outputs in ResBlock to output instead of maxpool
+
 """
 
 import tensorflow as tf
@@ -55,7 +57,8 @@ class ResBlock(object):
 			inputs=conv_1,
 			scope="bn_1",
 			reuse=tf.AUTO_REUSE,
-			is_training=is_training,
+			# is_training=is_training,
+			is_training=False,
 		)
 		conv_2 = tf.layers.conv2d(
 			inputs=bn_1,
@@ -71,7 +74,8 @@ class ResBlock(object):
 			inputs=conv_2,
 			scope="bn_2",
 			reuse=tf.AUTO_REUSE,
-			is_training=is_training,
+			# is_training=is_training,
+			is_training=False,
 		)
 		conv_3 = tf.layers.conv2d(
 			inputs=bn_2,
@@ -87,7 +91,8 @@ class ResBlock(object):
 			inputs=conv_3,
 			scope="bn_3",
 			reuse=tf.AUTO_REUSE,
-			is_training=is_training,
+			# is_training=is_training,
+			is_training=False,
 		)
 		res_conv = tf.layers.conv2d(
 			inputs=self.inputs,
@@ -111,11 +116,11 @@ class ResBlock(object):
 		# if csn is not None:
 		# 	output += tf.nn.relu(csn[self.name])
 		self.outputs = tf.layers.dropout(
-			inputs=max_pool,
+			inputs=output,
 			rate=0.5,
 			training=is_training,
 		)
-		self.gradients = tf.gradients(self.outputs, max_pool)
+		self.gradients = tf.gradients(output, max_pool)
 
 # MiniResNet
 class MiniResNet(object):
@@ -265,7 +270,7 @@ class MiniImageNetModel(Model):
 			self.logits += self.csn["logits"]
 		self.predictions = tf.argmax(self.logits, axis=1)
 		self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.labels, logits=self.logits))
-		self.optimize = tf.train.MomentumOptimizer(learning_rate=1e-4, momentum=0.9).minimize(self.loss)
+		self.optimize = tf.train.MomentumOptimizer(learning_rate=1e-5, momentum=0.9).minimize(self.loss)
 
 		if memory is None:
 
@@ -307,7 +312,7 @@ class NewMiniImageNetModel(Model):
 		with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
 			self.build_model(n, input_tensors, is_training)
 			variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.name)
-			self.saver = tf.train.Saver(var_list=variables, max_to_keep=1)
+			self.saver = tf.train.Saver(var_list=variables, max_to_keep=5)
 			if logdir is not None:
 				self.writer = tf.summary.FileWriter(logdir)
 
@@ -451,7 +456,7 @@ class adaCNNNet(object):
 		with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
 			self.build_model(n)
 			variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, parent.name + '/' + self.name)
-			self.saver = tf.train.Saver(var_list=variables, max_to_keep=1)
+			self.saver = tf.train.Saver(var_list=variables, max_to_keep=5)
 
 	def build_model(self, n):
 		running_output = self.inputs
@@ -465,17 +470,19 @@ class adaCNNNet(object):
 				name="conv_{}".format(i),
 				reuse=tf.AUTO_REUSE,
 			)
-			if self.csn["conv_{}".format(i)] is not None:
-				dense += self.csn["conv_{}".format(i)]
-			relu = tf.nn.relu(running_output)
-			self.gradients["conv_{}".format(i)] = tf.gradients(conv, relu)
+			if self.csn is not None and self.csn["conv_{}".format(i)] is not None:
+				conv += self.csn["conv_{}".format(i)]
+			relu = tf.nn.relu(conv)
+			self.gradients["conv_{}".format(i)] = tf.gradients(relu, conv)
 			maxpool = tf.layers.max_pooling2d(
-				inputs=running_output,
+				inputs=relu,
 				pool_size=(2, 2),
 				strides=(1, 1),
 			)
+			running_output = maxpool
+
 		self.output = tf.layers.dense(
-			inputs=tf.reshape(running_output, [-1, ]),
+			inputs=tf.reshape(running_output, [-1, 23 * 23 * 32]),
 			units=n,
 			activation=None,
 			name="logits",
@@ -484,22 +491,22 @@ class adaCNNNet(object):
 		self.logits = self.output
 		if self.csn is not None:
 			self.logits += self.csn["logits"]
-		self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.labels, logits=self.logits))
-		self.gradients["logits"] = tf.gradients(self.loss, self.logits)
+		# self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.labels, logits=self.logits))
+		# self.gradients["logits"] = tf.gradients(self.loss, self.logits)
 
-class adaCNN(Model):
+class adaCNNModel(Model):
 
-	def __init__(self, name, num_classes=5, input_tensors=None, logdir=None):
-		super(adaCNN, self).__init__()
+	def __init__(self, name, num_classes=5, input_tensors=None, logdir=None, is_training=None):
+		super(adaCNNModel, self).__init__()
 		self.name = name
 		with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
-			self.build_model(n, input_tensors)
+			self.build_model(num_classes, input_tensors, is_training)
 			variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.name)
-			self.saver = tf.train.Saver(var_list=variables, max_to_keep=1)
+			self.saver = tf.train.Saver(var_list=variables, max_to_keep=5)
 			if logdir is not None:
 				self.writer = tf.summary.FileWriter(logdir)
 
-	def build_model(self, n, input_tensors=None):
+	def build_model(self, n, input_tensors=None, is_training=None):
 
 		if input_tensors is None:
 			self.train_inputs = tf.placeholder(
@@ -528,81 +535,86 @@ class adaCNN(Model):
 			self.train_labels = tf.reshape(input_tensors['train_labels'], [-1, n])
 			self.test_inputs = tf.reshape(input_tensors['test_inputs'], [-1, 28, 28, 1])
 			self.test_labels = tf.reshape(input_tensors['test_labels'], [-1, n])
+		if is_training is None:
+			self.is_training = tf.placeholder(
+				shape=(None),
+				dtype=tf.bool,
+				name="is_training",
+			)
+		else:
+			self.is_training = is_training
 
-		self.is_training = tf.placeholder(
-			shape=(None),
-			dtype=tf.bool,
-			name="is_training",
-		)
-
-		batch_size = tf.shape(self.train_inputs)[0]
+		batch_size = tf.shape(input_tensors['train_inputs'])[0]
 
 		self.inputs = tf.concat([self.train_inputs, self.test_inputs], axis=0)
 		self.labels = tf.concat([self.train_labels, self.test_labels], axis=0)
 
-		# MiniResNet
+		# CNN
 
-		self.CNN_train = adaCNNNet("cnn", self.train_inputs, n, self, self.is_training, None)
+		self.cnn_train = adaCNNNet("cnn", self.train_inputs, n, self, self.is_training, None)
 		
-		self.train_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.train_labels, logits=self.miniresnet_train.logits))
+		self.train_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.train_labels, logits=self.cnn_train.logits))
 
 		# CSN Memory Matrix
 
 		# - Keys
 
-		self.memory_key_model = adaCNNNet("key_model", tf.reshape(self.inputs, [-1, 28 * 28 * 1]), 32, self, self.is_training, None)
+		self.memory_key_model = adaCNNNet("key_model", self.inputs, 32, self, self.is_training, None)
 		keys = tf.split(
 			self.memory_key_model.output,
 			[tf.shape(self.train_inputs)[0], tf.shape(self.test_inputs)[0]],
 			axis=0,
 		)
-		self.train_keys = train_keys = keys[0].reshape(batch_size, -1, 32)
-		self.test_keys = test_keys = keys[1].reshape(batch_size, -1, 32)
+		self.train_keys = train_keys = tf.reshape(keys[0], [batch_size, -1, 32])
+		self.test_keys = test_keys = tf.reshape(keys[1], [batch_size, -1, 32])
 
 		# - Values
 
-		# csn_gradients = {
-		# 	"resblock_3": tf.reshape(self.miniresnet_train.resblock_3.gradients[0], [-1, 25 * 25 * 128, 1]) * tf.expand_dims(tf.gradients(self.train_loss, self.miniresnet_train.logits)[0], axis=1),
-		# 	"resblock_4": tf.reshape(self.miniresnet_train.resblock_4.gradients[0], [-1, 24 * 24 * 256, 1]) * tf.expand_dims(tf.gradients(self.train_loss, self.miniresnet_train.logits)[0], axis=1),
-		# 	"logits": tf.expand_dims(tf.gradients(self.train_loss, self.miniresnet_train.logits)[0], axis=2) * tf.expand_dims(tf.gradients(self.train_loss, self.miniresnet_train.logits)[0], axis=1),
-		# }
-
-		# csn_gradients = tf.concat(list(csn_gradients.values()), axis=1)
-		# self.memory_value_model = MemoryValueModel(csn_gradients, self)
-		# csn_gradients = self.memory_value_model.output
-		# csn_gradients = tf.split(csn_gradients, [25 * 25 * 128, 24 * 24 * 256, n], axis=1)
-		# train_values = {
-		# 	"resblock_3": csn_gradients[0][:, :, 0].reshape(batch_size, -1, 25 * 25 * 128),
-		# 	"resblock_4": csn_gradients[1][:, :, 0].reshape(batch_size, -1, 24 * 24 * 256),
-		# 	"logits": csn_gradients[2][:, :, 0].reshape(batch_size, -1, n),
-		# }
+		csn_gradients = {
+			"conv_1": tf.reshape(self.cnn_train.gradients["conv_1"][0], [-1, 27 * 27 * 32, 1]) * tf.expand_dims(tf.gradients(self.train_loss, self.cnn_train.logits)[0], axis=1),
+			"conv_2": tf.reshape(self.cnn_train.gradients["conv_2"][0], [-1, 26 * 26 * 32, 1]) * tf.expand_dims(tf.gradients(self.train_loss, self.cnn_train.logits)[0], axis=1),
+			"conv_3": tf.reshape(self.cnn_train.gradients["conv_3"][0], [-1, 25 * 25 * 32, 1]) * tf.expand_dims(tf.gradients(self.train_loss, self.cnn_train.logits)[0], axis=1),
+			"conv_4": tf.reshape(self.cnn_train.gradients["conv_4"][0], [-1, 24 * 24 * 32, 1]) * tf.expand_dims(tf.gradients(self.train_loss, self.cnn_train.logits)[0], axis=1),
+			"logits": tf.expand_dims(tf.gradients(self.train_loss, self.cnn_train.logits)[0], axis=2) * tf.expand_dims(tf.gradients(self.train_loss, self.cnn_train.logits)[0], axis=1),
+		}
+		
+		train_values = {
+			"conv_1": tf.reshape(MemoryValueModel(csn_gradients["conv_1"], self).outputs, [batch_size, -1, 27 * 27 * 32]),
+			"conv_2": tf.reshape(MemoryValueModel(csn_gradients["conv_2"], self).outputs, [batch_size, -1, 26 * 26 * 32]),
+			"conv_3": tf.reshape(MemoryValueModel(csn_gradients["conv_3"], self).outputs, [batch_size, -1, 25 * 25 * 32]),
+			"conv_4": tf.reshape(MemoryValueModel(csn_gradients["conv_4"], self).outputs, [batch_size, -1, 24 * 24 * 32]),
+			"logits": tf.reshape(MemoryValueModel(csn_gradients["logits"], self).outputs, [batch_size, -1, n]),
+		}
 
 		# Calculating Value for Test Key
 
-		# dotp = tf.matmul(test_keys, train_keys, transpose_b=True)
-		# self.attention_weights = attention_weights = tf.nn.softmax(dotp)
-		# csn = dict(zip(train_values.keys(), [tf.matmul(attention_weights, value) for value in train_values.values()]))
-		# self.csn = {
-		# 	"resblock_3": tf.reshape(csn["resblock_3"], [-1, 25, 25, 128]),
-		# 	"resblock_4": tf.reshape(csn["resblock_4"], [-1, 24, 24, 256]),
-		# 	"logits": tf.reshape(csn["logits"], [-1, n]),
-		# }
+		dotp = tf.matmul(test_keys, train_keys, transpose_b=True)
+		self.attention_weights = attention_weights = tf.nn.softmax(dotp)
+		csn = dict(zip(train_values.keys(), [tf.matmul(attention_weights, value) for value in train_values.values()]))
+		self.csn = {
+			"conv_0": None,
+			"conv_1": tf.reshape(csn["conv_1"], [-1, 27, 27, 32]),
+			"conv_2": tf.reshape(csn["conv_2"], [-1, 26, 26, 32]),
+			"conv_3": tf.reshape(csn["conv_3"], [-1, 25, 25, 32]),
+			"conv_4": tf.reshape(csn["conv_4"], [-1, 24, 24, 32]),
+			"logits": tf.reshape(csn["logits"], [-1, n]),
+		}
 
 		# Finally, pass CSN values to MiniResNet
 
-		# self.miniresnet_test = MiniResNet(self.test_inputs, n, "miniresnet", self, self.is_training, self.csn)
+		self.cnn_test = adaCNNNet("cnn", self.test_inputs, n, self, self.is_training, self.csn)
 
-		# self.test_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.test_labels, logits=self.miniresnet_test.logits))
-		# tf.summary.scalar('episode_test_loss', self.test_loss)
+		self.test_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.test_labels, logits=self.cnn_test.logits))
+		tf.summary.scalar('episode_test_loss', self.test_loss)
 
-		# self.optimize = tf.train.MomentumOptimizer(learning_rate=1e-3, momentum=0.9).minimize(self.test_loss)
+		self.optimize = tf.train.AdamOptimizer(learning_rate=1e-4).minimize(self.test_loss)
 
-		# self.test_predictions = tf.argmax(self.miniresnet_test.logits, axis=1)
+		self.test_predictions = tf.argmax(self.cnn_test.logits, axis=1)
 
-		# self.test_accuracy = tf.contrib.metrics.accuracy(labels=tf.argmax(self.test_labels, axis=1), predictions=self.test_predictions)
-		# tf.summary.scalar('episode_test_accuracy', self.test_accuracy)
+		self.test_accuracy = tf.contrib.metrics.accuracy(labels=tf.argmax(self.test_labels, axis=1), predictions=self.test_predictions)
+		tf.summary.scalar('episode_test_accuracy', self.test_accuracy)
 
-		# self.summary = tf.summary.merge_all()
+		self.summary = tf.summary.merge_all()
 
 
 # This should take in a data sample and output a key vector
