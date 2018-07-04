@@ -54,7 +54,7 @@ def main(unused_args):
 			datasource='omniglot',
 			num_classes=num_classes,
 			num_samples_per_class=2,
-			batch_size=5,
+			batch_size=32,
 			test_set=False,
 		)
 
