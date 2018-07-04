@@ -97,11 +97,11 @@ def main(unused_args):
 		tf.train.start_queue_runners()
 
 		n_steps = 30000
-		moving_avg = 0.
+		moving_avg_accuracy = 0.
 		min_val_loss = np.inf
 		for step in np.arange(n_steps):
 			loss, _, accuracy, summary = sess.run([model.test_loss, model.optimize, model.test_accuracy, model.summary], {model.is_training: False})
-			moving_avg_accuracy = 0.1 * accuracy + 0.9 * moving_avg
+			moving_avg_accuracy = 0.1 * accuracy + 0.9 * moving_avg_accuracy
 			if step % 50 == 0:
 				# model.writer.add_summary(summary, i)
 				# Validation
