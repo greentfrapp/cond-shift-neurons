@@ -1,4 +1,5 @@
-data/
+data/*/*
+!data/omniglot_resized/resize_images.py
 models/
 log/
 
