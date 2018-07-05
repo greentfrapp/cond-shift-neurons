@@ -8,9 +8,9 @@ Implementation of Conditionally Shifted Neurons (CSN) from:
 
 ## Summary
 
-Here, Munkhdalai et al. built on their previous work ([Munkhdalai et al., 2017](https://arxiv.org/abs/1703.00837)) and introduced a adaptive-at-test-time network architecture for metalearning.
+Here, Munkhdalai et al. built on their previous work ([Munkhdalai et al., 2017](https://arxiv.org/abs/1703.00837)) and introduced an adaptive-at-test-time network architecture for metalearning.
 
-In regular neural network training, we calculate the gradients of the loss function with respect to the network parameters. Then the gradients are used to update the network parameters, which hopefully reduces test loss.
+In regular neural network training, we calculate the gradients of the loss function with respect to the network parameters. These gradients are used to update the network parameters, which hopefully reduces test loss.
 
 By aggregating parameter updates across many training iterations and samples, we ideally end up with a network that works well on any sample from the same distribution.
 
@@ -34,7 +34,7 @@ In other words, if the test sample is most aligned to training sample 1, we use 
 
 **If the test sample is most aligned to training sample 1, why don't we just classify it to be the same class as training sample 1?**
 
-Well, we can do that, but consider the case where the test sample is equally aligned to all three samples. Then the algorithm automatically incorporates gradient information from all three samples to make the classification. If we just use the alignment to make the decision, we would be stuck.
+We can do that, but consider the case where the test sample is equally aligned to all three samples. Then the algorithm automatically incorporates gradient information from all three samples to make the classification. If we just use the alignment to make the decision, we would be stuck.
 
 ## Interesting Notes and Relations
 
@@ -70,16 +70,23 @@ This would then be similar to Matching Networks by Vinyals et al. ([2016](https:
 
 However, instead of classifying based on a similarity metric, the similarity/alignment here is used to provide information for updating a classification network. This might be arguably more robust than metric/similarity-based metalearners, although less efficient.
 
+## Instructions
 
+*WIP, currently only available for training on Omniglot*
 
+First, follow the instructions [here](https://github.com/greentfrapp/cond-shift-neurons/tree/master/data/omniglot_resized/resize_images.py) to download and sort the Omniglot dataset. **Shout out and thanks to @cbfinn for the script!**
 
+Then just run the following command to train CSN on the Omniglot 5-way 1-shot task:
 
+```
+$ python.py main.py --train
+```
 
+Then run the following command to test the trained model:
 
-
-
-
-
+```
+$ python.py main.py --test
+```
 
 
 
