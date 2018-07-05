@@ -553,7 +553,8 @@ class adaCNNModel(Model):
 
 		self.cnn_train = adaCNNNet("cnn", self.train_inputs, n, self, self.is_training, None)
 		
-		self.train_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.train_labels, logits=self.cnn_train.logits))
+		# Need to calculate training loss per task
+		self.train_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=tf.reshape(self.train_labels, [batch_size, -1, n]), logits=tf.reshape(self.cnn_train.logits, [batch_size, -1, n])), axis=1)
 
 		# CSN Memory Matrix
 
@@ -578,7 +579,7 @@ class adaCNNModel(Model):
 			"logits": tf.expand_dims(tf.gradients(self.train_loss, self.cnn_train.logits)[0], axis=2) * tf.expand_dims(tf.gradients(self.train_loss, self.cnn_train.logits)[0], axis=1),
 		}
 		
-		train_values = {
+		self.train_values = train_values = {
 			"conv_1": tf.reshape(MemoryValueModel(csn_gradients["conv_1"], self).outputs, [batch_size, -1, 27 * 27 * 32]),
 			"conv_2": tf.reshape(MemoryValueModel(csn_gradients["conv_2"], self).outputs, [batch_size, -1, 26 * 26 * 32]),
 			"conv_3": tf.reshape(MemoryValueModel(csn_gradients["conv_3"], self).outputs, [batch_size, -1, 25 * 25 * 32]),
