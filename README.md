@@ -12,7 +12,7 @@ There are some implementation differences, eg. learning rate, number of convolut
 
 ## Instructions
 
-First, follow the instructions [here](https://github.com/greentfrapp/cond-shift-neurons/tree/master/data/omniglot_resized/resize_images.py) to download and sort the Omniglot dataset.
+First, follow the instructions [here](https://github.com/greentfrapp/cond-shift-neurons/tree/master/data/omniglot_resized/resize_images.py) to download, sort and resize the Omniglot dataset.
 
 **Shout out and thanks to [@cbfinn](https://github.com/cbfinn/maml) for the script!**
 
@@ -34,7 +34,7 @@ Default training parameters:
 - Batchsize per metatraining iteration `--meta_batch_size=32`
 - Metalearning rate `--meta_lr=0.0003`
 
-Run the following to view the Tensorboard summary:
+Run the following to view the Tensorboard log:
 
 ```
 $ tensorboard --logdir=logs/
@@ -46,7 +46,7 @@ Finally, run this to test the trained model:
 $ python main.py --test
 ```
 
-There is the option to test with a different number of classes per test task, by specifying `--num_test_classes`. A model trained on N-way tasks can only be tested on M-way tasks, where M <= N.
+There is the option to test with a different number of classes, by specifying `--num_test_classes`. A model trained on N-way tasks can only be tested on M-way tasks, where M <= N.
 
 See [main.py](https://github.com/greentfrapp/cond-shift-neurons/tree/master/main.py) for the full list of flags or just run:
 
@@ -56,7 +56,7 @@ $ python main.py --help
 
 ## Summary
 
-Here, Munkhdalai et al. built on their previous work ([Munkhdalai et al., 2017](https://arxiv.org/abs/1703.00837)) and introduced an adaptive-at-test-time network architecture for metalearning.
+In this paper, Munkhdalai et al. built on their previous work ([Munkhdalai et al., 2017](https://arxiv.org/abs/1703.00837)) and introduced an improved adaptive-at-test-time network architecture for metalearning.
 
 In regular neural network training, we calculate the gradients of the loss function with respect to the network parameters. These gradients are used to update the network parameters, which hopefully reduces test loss.
 
