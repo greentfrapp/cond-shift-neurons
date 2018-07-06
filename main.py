@@ -4,10 +4,10 @@ Implementation of Conditionally-Shifted Neurons in Tensorflow
 TODO:
 - Implement adaResNet
 - Add dropout
-- Implement Tensorboard correctly
-- Add adaFFN for Omniglot, should train faster
 
 """
+
+
 from __future__ import print_function
 try:
 	raw_input
@@ -42,10 +42,13 @@ flags.DEFINE_integer("num_shot_test", 1, "Number of test samples per class per t
 # Training parameters
 flags.DEFINE_integer("metatrain_iterations", 40000, "Number of metatraining iterations")
 flags.DEFINE_integer("meta_batch_size", 32, "Batchsize for metatraining")
-flags.DEFINE_float("meta_lr", 0.0001, "Meta learning rate")
+flags.DEFINE_float("meta_lr", 0.0003, "Meta learning rate")
 flags.DEFINE_integer("validate_every", 500, "Frequency for metavalidation and saving")
 flags.DEFINE_string("savepath", "models/", "Path to save or load models")
-flags.DEFINE_string("logdir", "log/", "Path to save Tensorboard summaries")
+flags.DEFINE_string("logdir", "logs/", "Path to save Tensorboard summaries")
+
+# Testing parameters
+flags.DEFINE_integer("num_test_classes", None, "Number of classes per test task, if different from training")
 
 # Logging parameters
 flags.DEFINE_integer("print_every", 100, "Frequency for printing training loss and accuracy")
@@ -94,11 +97,11 @@ def main(unused_args):
 		# Graphs for metatraining and metavalidation
 		# using scope reuse=tf.AUTO_REUSE, not sure if this is the best way to do it
 
-		model_metatrain = adaCNNModel("model", num_classes=FLAGS.num_classes, input_tensors=metatrain_input_tensors, lr=FLAGS.meta_lr, logdir=FLAGS.logdir + "train")
+		model_metatrain = adaCNNModel("model", num_classes=FLAGS.num_classes, input_tensors=metatrain_input_tensors, lr=FLAGS.meta_lr, logdir=FLAGS.logdir, prefix="metatrain")
 		# WIP adaResNet
 		# model_metatrain = adaResNetModel("model", n=num_classes, input_tensors=input_tensors, logdir=FLAGS.logdir + "train")
 
-		model_metaval = adaCNNModel("model", num_classes=FLAGS.num_classes, input_tensors=metaval_input_tensors, lr=FLAGS.meta_lr, logdir=FLAGS.logdir + "val", is_training=model_metatrain.is_training)
+		model_metaval = adaCNNModel("model", num_classes=FLAGS.num_classes, input_tensors=metaval_input_tensors, lr=FLAGS.meta_lr, logdir=FLAGS.logdir, prefix="metaval", is_training=model_metatrain.is_training)
 		# WIP adaResNet
 		# model_metaval = adaResNetModel("model", n=num_classes, input_tensors=input_tensors, logdir=FLAGS.logdir + "val", is_training=model_metatrain.is_training)
 
@@ -113,10 +116,12 @@ def main(unused_args):
 				if step > 0 and step % FLAGS.print_every == 0:
 					model_metatrain.writer.add_summary(metatrain_summary, step)
 					print("Step #{} - Loss : {:.3f} - PreAcc : {:.3f} - PostAcc : {:.3f}".format(step, metatrain_loss, metatrain_preaccuracy, metatrain_postaccuracy))
-				if step > 0 and step % FLAGS.validate_every == 0:
+				if step > 0 and (step % FLAGS.validate_every == 0 or step == (FLAGS.metatrain_iterations - 1)):
+					if step == (FLAGS.metatrain_iterations - 1):
+						print("Training complete!")
 					metaval_loss, metaval_preaccuracy, metaval_postaccuracy, metaval_summary = sess.run([model_metaval.test_loss, model_metaval.train_accuracy, model_metaval.test_accuracy, model_metaval.summary], {model_metatrain.is_training: False})
 					model_metaval.writer.add_summary(metaval_summary, step)
-					print("Validation - Loss : {:.3f} - PreAcc : {:.3f} - PostAcc : {:.3f}".format(metaval_loss, metaval_preaccuracy, metaval_postaccuracy))
+					print("Validation Results - Loss : {:.3f} - PreAcc : {:.3f} - PostAcc : {:.3f}".format(metaval_loss, metaval_preaccuracy, metaval_postaccuracy))
 					if metaval_loss < saved_metaval_loss:
 						saved_metaval_loss = metaval_loss
 						model_metatrain.save(sess, FLAGS.savepath, global_step=step, verbose=True)
@@ -132,9 +137,11 @@ def main(unused_args):
 
 		NUM_TEST_SAMPLES = 600
 
+		num_test_classes = FLAGS.num_test_classes or FLAGS.num_classes
+
 		data_generator = DataGenerator(
 			datasource='omniglot',
-			num_classes=FLAGS.num_classes,
+			num_classes=num_test_classes,
 			num_samples_per_class=FLAGS.num_shot_train+FLAGS.num_shot_test,
 			batch_size=1, # use 1 for testing to calculate stdev and ci95
 			test_set=True,
@@ -142,10 +149,10 @@ def main(unused_args):
 
 		image_tensor, label_tensor = data_generator.make_data_tensor(train=False)
 
-		train_inputs = tf.slice(image_tensor, [0, 0, 0], [-1, FLAGS.num_classes*FLAGS.num_shot_train, -1])
-		test_inputs = tf.slice(image_tensor, [0, FLAGS.num_classes*FLAGS.num_shot_train, 0], [-1, -1, -1])
-		train_labels = tf.slice(label_tensor, [0, 0, 0], [-1, FLAGS.num_classes*FLAGS.num_shot_train, -1])
-		test_labels = tf.slice(label_tensor, [0, FLAGS.num_classes*FLAGS.num_shot_train, 0], [-1, -1, -1])
+		train_inputs = tf.slice(image_tensor, [0, 0, 0], [-1, num_test_classes*FLAGS.num_shot_train, -1])
+		test_inputs = tf.slice(image_tensor, [0, num_test_classes*FLAGS.num_shot_train, 0], [-1, -1, -1])
+		train_labels = tf.slice(label_tensor, [0, 0, 0], [-1, num_test_classes*FLAGS.num_shot_train, -1])
+		test_labels = tf.slice(label_tensor, [0, num_test_classes*FLAGS.num_shot_train, 0], [-1, -1, -1])
 		input_tensors = {
 			'train_inputs': train_inputs, # batch_size, num_classes * (num_samples_per_class - update_batch_size), 28 * 28
 			'train_labels': train_labels, # batch_size, num_classes * (num_samples_per_class - update_batch_size), num_classes
@@ -153,7 +160,7 @@ def main(unused_args):
 			'test_labels': test_labels, # batch_size, num_classes * update_batch_size, num_classes
 		}
 
-		model = adaCNNModel("model", num_classes=FLAGS.num_classes, input_tensors=input_tensors, logdir=None)
+		model = adaCNNModel("model", num_classes=FLAGS.num_classes, input_tensors=input_tensors, logdir=None, num_test_classes=num_test_classes)
 
 		sess = tf.InteractiveSession()
 		model.load(sess, FLAGS.savepath, verbose=True)

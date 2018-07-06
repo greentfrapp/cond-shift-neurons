@@ -4,9 +4,11 @@ Utility functions
 
 """
 
+
 import os
 import random
 import tensorflow as tf
+
 
 def update_target_graph(from_scope,to_scope):
 	from_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, from_scope)

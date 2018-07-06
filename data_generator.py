@@ -1,4 +1,6 @@
 """ Code for loading data. """
+
+
 import numpy as np
 import os
 import random
@@ -6,6 +8,7 @@ import tensorflow as tf
 
 
 from utils import get_images
+
 
 ## Copied from Finn's implementation https://github.com/cbfinn/maml/blob/master/data_generator.py
 class DataGenerator(object):
