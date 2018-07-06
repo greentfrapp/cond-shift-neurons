@@ -6,7 +6,7 @@ Implementation of Conditionally Shifted Neurons (CSN) from:
 
 The author's implementation of CSN seems to be unreleased as of yet and in any case, the author mentioned the code is in Chainer. So here's an implementation in Tensorflow!
 
-There are some implementation differences, eg. learning rate, number of convolutional layers etc. Refer to **Implementation Differences** below for details.
+There are some implementation differences, eg. learning rate, number of convolutional layers etc. Refer to [Implementation Differences](#implementation-differences) below for details.
 
 *WIP - only Omniglot and using Direct Feedback (see Section 2.3 of paper) for now.*
 
