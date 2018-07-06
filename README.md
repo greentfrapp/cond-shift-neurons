@@ -1,6 +1,6 @@
 # cond-shift-neurons
 
-Implementation of Conditionally Shifted Neurons (CSN) from:
+Implementation of Conditionally Shifted Neurons (CSN) for metalearning from:
 
 [Munkhdalai, T., et al. **"Rapid adaptation with conditionally shifted neurons."** *Proceedings of the 35th International Conference on Machine Learning*. 2018.](https://arxiv.org/pdf/1712.09926.pdf)
 
@@ -69,7 +69,7 @@ Or to cite the paper:
 
 Briefly and on a high-level, here's what happens during metatest:
 
-*Assume a 3-way 1-shot classification task with a main classifier network. The initialization of the main classifier network has been metatrained but has not seen the new metatest task.*
+*Assume a 3-way 1-shot classification task with a main classifier network, where each sample is a 2-dimensional vector. The initialization of the main classifier network has been metatrained but has not seen the new metatest task.*
 
 <p align="center"><img src="images/original_network.png" alt="Main classifier network that takes in a 2-dimensional input and produces a 3-dimensional logit for classification." width="150px" height="whatever" align="center" style="display: block; margin:auto;"></p>
 
@@ -90,6 +90,13 @@ Put simply, if the test sample is most aligned to training sample A, we use grad
 **But if the test sample is most aligned to training sample A, why don't we just classify it to be the same class as training sample A?**
 
 We can do that, but consider the case where the test sample is equally aligned to all three samples. Then the algorithm automatically incorporates gradient information from all three samples to make the classification. If we just use the alignment to make the decision, we would be stuck.
+
+During metatraining, we train three main things:
+
+- The initialization of the main network
+- The Key Function which is parameterized as a neural network
+- The Value Function which is parameterized as a neural network
+
 
 ## Interesting Notes and Relations
 
