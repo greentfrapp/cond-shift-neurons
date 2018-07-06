@@ -22,13 +22,16 @@ from absl import flags
 from absl import app
 
 
-from models import adaCNNModel, adaResNetModel
+from models import adaFFNModel, adaCNNModel, adaResNetModel
 from data_generator import DataGenerator
 
 
 FLAGS = flags.FLAGS
 
 # Commands
+flags.DEFINE_bool("sinusoid_train", False, "Train")
+flags.DEFINE_bool("sinusoid_test", False, "Test")
+
 flags.DEFINE_bool("train", False, "Train")
 flags.DEFINE_bool("test", False, "Test")
 
@@ -182,6 +185,98 @@ def main(unused_args):
 		print("Accuracy                : {:.3f}".format(avg))
 		print("StdDev                  : {:.3f}".format(stdev))
 		print("95% Confidence Interval : {:.3f}".format(ci95))
+
+	if FLAGS.sinusoid_train:
+
+		data_generator = DataGenerator(
+			datasource='sinusoid',
+			num_classes=None,
+			num_samples_per_class=20,
+			batch_size=FLAGS.meta_batch_size,
+			test_set=None,
+		)
+
+		model = adaFFNModel("model", lr=FLAGS.meta_lr, logdir=FLAGS.logdir, prefix="metatrain")
+		
+		sess = tf.InteractiveSession()
+		tf.global_variables_initializer().run()
+
+		saved_loss = np.inf
+		try:
+			for step in np.arange(FLAGS.metatrain_iterations):
+				batch_x, batch_y, _, _ = data_generator.generate()
+				train_inputs = batch_x[:, :10, :]
+				train_labels = batch_y[:, :10, :]
+				test_inputs = batch_x[:, 10:, :]
+				test_labels = batch_y[:, 10:, :]
+				feed_dict = {
+					model.train_inputs: train_inputs,
+					model.train_labels: train_labels,
+					model.test_inputs: test_inputs,
+					model.test_labels: test_labels,
+				}
+				metatrain_preloss, metatrain_postloss, metatrain_summary, _ = sess.run([model.train_loss, model.test_loss, model.summary, model.optimize], feed_dict)
+				if step > 0 and step % FLAGS.print_every == 0:
+					model.writer.add_summary(metatrain_summary, step)
+					print("Step #{} - PreLoss : {:.3f} - PostLoss : {:.3f}".format(step, np.mean(metatrain_preloss), metatrain_postloss))
+				if step > 0 and (step % FLAGS.validate_every == 0 or step == (FLAGS.metatrain_iterations - 1)):
+					if step == (FLAGS.metatrain_iterations - 1):
+						print("Training complete!")
+					if metatrain_postloss < saved_loss:
+						saved_loss = metatrain_postloss
+						model.save(sess, FLAGS.savepath, global_step=step, verbose=True)
+		# Catch Ctrl-C event and allow save option
+		except KeyboardInterrupt:
+			response = raw_input("\nSave latest model at Step #{}? (y/n)\n".format(step))
+			if response == 'y':
+				model.save(sess, FLAGS.savepath, global_step=step, verbose=True)
+			else:
+				print("Latest model not saved.")
+
+	if FLAGS.sinusoid_test:
+
+		data_generator = DataGenerator(
+			datasource='sinusoid',
+			num_classes=None,
+			num_samples_per_class=10,
+			batch_size=1,
+			test_set=None,
+		)
+
+		model = adaFFNModel("model", lr=FLAGS.meta_lr, logdir=FLAGS.logdir, prefix="metatrain", num_train_samples=10, num_test_samples=50)
+		
+		sess = tf.InteractiveSession()
+		model.load(sess, FLAGS.savepath, verbose=True)
+		batch_x, batch_y, amp, phase = data_generator.generate()
+		train_inputs = batch_x[:, :10, :]
+		train_labels = batch_y[:, :10, :]
+
+		x = np.arange(-5., 5., 0.2)
+		y = amp * np.sin(x - phase)
+
+		feed_dict = {
+			model.train_inputs: x.reshape(5, -1, 1)
+		}
+
+		prepredictions = sess.run(model.train_predictions, feed_dict)
+
+		feed_dict = {
+			model.train_inputs: train_inputs,
+			model.train_labels: train_labels,
+			model.test_inputs: x.reshape(1, -1, 1)
+		}
+
+		postpredictions = sess.run(model.test_predictions, feed_dict)
+		
+		import matplotlib.pyplot as plt
+
+		fig, ax = plt.subplots()
+		ax.scatter(train_inputs.reshape(-1), train_labels.reshape(-1), label="Training Set")
+		ax.plot(x, y, label="Truth")
+		ax.plot(x, prepredictions.reshape(-1), label="Initial Prediction")
+		ax.plot(x, postpredictions.reshape(-1), label="Trained Prediction")
+		ax.legend(bbox_to_anchor=(0., 1.02, 1., .102), loc=3, ncol=2, mode="expand", borderaxespad=0.)
+		plt.show()
 
 
 if __name__ == "__main__":
