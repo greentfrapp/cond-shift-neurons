@@ -17,6 +17,7 @@ def update_target_graph(from_scope,to_scope):
 	return op_holder
 
 ## Image helper
+## Copied from Finn's implementation https://github.com/cbfinn/maml/blob/master/utils.py
 def get_images(paths, labels, nb_samples=None, shuffle=True):
     if nb_samples is not None:
         sampler = lambda x: random.sample(x, nb_samples)

@@ -1,22 +1,19 @@
 """
 Implementation of Conditionally-Shifted Neurons in Tensorflow
 
-Outline:
-There will be two MiniImageNetModels, with identical weights.
-There is also gradient embedder G.
-During training, the training samples are fed into net A.
-We then obtain gradients from A and pass to G to update the memory matrix.
-Net B then take a weighted sum of the memory matrix to do prediction.
-
-So we can backpropagate through both B and G during meta-training.
-
-During meta-test, we only need one copy of the MiniImageNetModel.
-
 TODO:
-- Add copy op to MiniImageNetModel
-- Think of how to calculate csn values
+- Implement adaResNet
+- Add dropout
+- Implement Tensorboard correctly
+- Add adaFFN for Omniglot, should train faster
 
 """
+from __future__ import print_function
+try:
+	raw_input
+except:
+	raw_input = input
+
 
 import tensorflow as tf
 import numpy as np
@@ -24,117 +21,131 @@ import matplotlib.pyplot as plt
 from absl import flags
 from absl import app
 
-from models import NewMiniImageNetModel, adaCNNModel
+
+from models import adaCNNModel, adaResNetModel
 from data_generator import DataGenerator
-from utils import update_target_graph
-from tasks import MNISTFewShotTask
+
 
 FLAGS = flags.FLAGS
-
-flags.DEFINE_bool("train_mnist", False, "Train")
-flags.DEFINE_bool("test_mnist", False, "Test")
 
 # Commands
 flags.DEFINE_bool("train", False, "Train")
 flags.DEFINE_bool("test", False, "Test")
 
+# Task parameters
+# WIP only omniglot for now
+# flags.DEFINE_string("datasource", "omniglot", "Omniglot or miniImagenet")
+flags.DEFINE_integer("num_classes", 5, "Number of classes per task eg. 5-way refers to 5 classes")
+flags.DEFINE_integer("num_shot_train", 1, "Number of training samples per class per task eg. 1-shot refers to 1 training sample per class")
+flags.DEFINE_integer("num_shot_test", 1, "Number of test samples per class per task")
+
 # Training parameters
+flags.DEFINE_integer("metatrain_iterations", 40000, "Number of metatraining iterations")
+flags.DEFINE_integer("meta_batch_size", 32, "Batchsize for metatraining")
+flags.DEFINE_float("meta_lr", 0.0001, "Meta learning rate")
+flags.DEFINE_integer("validate_every", 500, "Frequency for metavalidation and saving")
 flags.DEFINE_string("savepath", "models/", "Path to save or load models")
 flags.DEFINE_string("logdir", "log/", "Path to save Tensorboard summaries")
+
+# Logging parameters
+flags.DEFINE_integer("print_every", 100, "Frequency for printing training loss and accuracy")
 
 
 def main(unused_args):
 
 	if FLAGS.train:
 
-		update_batch_size = 1
-		num_classes = 5
-
 		data_generator = DataGenerator(
 			datasource='omniglot',
-			num_classes=num_classes,
-			num_samples_per_class=2,
-			batch_size=32,
+			num_classes=FLAGS.num_classes,
+			num_samples_per_class=FLAGS.num_shot_train+FLAGS.num_shot_test,
+			batch_size=FLAGS.meta_batch_size,
 			test_set=False,
 		)
 
-		# samples - (batch_size, num_classes * num_samples_per_class, 28 * 28)
-		# labels - (batch_size, num_classes * num_samples_per_class, num_classes)
-		train_image_tensor, train_label_tensor = data_generator.make_data_tensor(train=True)
-		# train_image_tensor, train_label_tensor = data_generator.make_data_tensor(train=False)
-
-		train_inputs = tf.slice(train_image_tensor, [0,0,0], [-1,num_classes*update_batch_size, -1])
-		test_inputs = tf.slice(train_image_tensor, [0,num_classes*update_batch_size, 0], [-1,-1,-1])
-		train_labels = tf.slice(train_label_tensor, [0,0,0], [-1,num_classes*update_batch_size, -1])
-		test_labels = tf.slice(train_label_tensor, [0,num_classes*update_batch_size, 0], [-1,-1,-1])
-		input_tensors = {
+		# Tensorflow queue for metatraining dataset
+		# metatrain_image_tensor - (batch_size, num_classes * num_samples_per_class, 28 * 28)
+		# metatrain_label_tensor - (batch_size, num_classes * num_samples_per_class, num_classes)
+		metatrain_image_tensor, metatrain_label_tensor = data_generator.make_data_tensor(train=True)
+		train_inputs = tf.slice(metatrain_image_tensor, [0, 0, 0], [-1, FLAGS.num_classes*FLAGS.num_shot_train, -1])
+		test_inputs = tf.slice(metatrain_image_tensor, [0, FLAGS.num_classes*FLAGS.num_shot_train, 0], [-1, -1, -1])
+		train_labels = tf.slice(metatrain_label_tensor, [0, 0, 0], [-1, FLAGS.num_classes*FLAGS.num_shot_train, -1])
+		test_labels = tf.slice(metatrain_label_tensor, [0, FLAGS.num_classes*FLAGS.num_shot_train, 0], [-1, -1, -1])
+		metatrain_input_tensors = {
 			'train_inputs': train_inputs, # batch_size, num_classes * (num_samples_per_class - update_batch_size), 28 * 28
 			'train_labels': train_labels, # batch_size, num_classes * (num_samples_per_class - update_batch_size), num_classes
 			'test_inputs': test_inputs, # batch_size, num_classes * update_batch_size, 28 * 28
 			'test_labels': test_labels, # batch_size, num_classes * update_batch_size, num_classes
 		}
 
-		model = adaCNNModel("model", num_classes=num_classes, input_tensors=input_tensors, logdir=None)
-		# model = NewMiniImageNetModel("model", n=num_classes, input_tensors=input_tensors, logdir=FLAGS.logdir + "train")
-
-		# Construct graph for validation
-		val_image_tensor, val_label_tensor = data_generator.make_data_tensor(train=False)
-		train_inputs = tf.slice(val_image_tensor, [0,0,0], [-1,num_classes*update_batch_size, -1])
-		test_inputs = tf.slice(val_image_tensor, [0,num_classes*update_batch_size, 0], [-1,-1,-1])
-		train_labels = tf.slice(val_label_tensor, [0,0,0], [-1,num_classes*update_batch_size, -1])
-		test_labels = tf.slice(val_label_tensor, [0,num_classes*update_batch_size, 0], [-1,-1,-1])
-		input_tensors = {
+		# Tensorflow queue for metavalidation dataset
+		metaval_image_tensor, metaval_label_tensor = data_generator.make_data_tensor(train=False)
+		train_inputs = tf.slice(metaval_image_tensor, [0, 0, 0], [-1, FLAGS.num_classes*FLAGS.num_shot_train, -1])
+		test_inputs = tf.slice(metaval_image_tensor, [0, FLAGS.num_classes*FLAGS.num_shot_train, 0], [-1, -1, -1])
+		train_labels = tf.slice(metaval_label_tensor, [0, 0, 0], [-1, FLAGS.num_classes*FLAGS.num_shot_train, -1])
+		test_labels = tf.slice(metaval_label_tensor, [0, FLAGS.num_classes*FLAGS.num_shot_train, 0], [-1, -1, -1])
+		metaval_input_tensors = {
 			'train_inputs': train_inputs, # batch_size, num_classes * (num_samples_per_class - update_batch_size), 28 * 28
 			'train_labels': train_labels, # batch_size, num_classes * (num_samples_per_class - update_batch_size), num_classes
 			'test_inputs': test_inputs, # batch_size, num_classes * update_batch_size, 28 * 28
 			'test_labels': test_labels, # batch_size, num_classes * update_batch_size, num_classes
 		}
-		model_val = adaCNNModel("model", num_classes=num_classes, input_tensors=input_tensors, logdir=None, is_training=model.is_training)
-		# model_val = NewMiniImageNetModel("model", n=num_classes, input_tensors=input_tensors, logdir=FLAGS.logdir + "val", is_training=model.is_training)
+
+		# Graphs for metatraining and metavalidation
+		# using scope reuse=tf.AUTO_REUSE, not sure if this is the best way to do it
+
+		model_metatrain = adaCNNModel("model", num_classes=FLAGS.num_classes, input_tensors=metatrain_input_tensors, lr=FLAGS.meta_lr, logdir=FLAGS.logdir + "train")
+		# WIP adaResNet
+		# model_metatrain = adaResNetModel("model", n=num_classes, input_tensors=input_tensors, logdir=FLAGS.logdir + "train")
+
+		model_metaval = adaCNNModel("model", num_classes=FLAGS.num_classes, input_tensors=metaval_input_tensors, lr=FLAGS.meta_lr, logdir=FLAGS.logdir + "val", is_training=model_metatrain.is_training)
+		# WIP adaResNet
+		# model_metaval = adaResNetModel("model", n=num_classes, input_tensors=input_tensors, logdir=FLAGS.logdir + "val", is_training=model_metatrain.is_training)
 
 		sess = tf.InteractiveSession()
 		tf.global_variables_initializer().run()
 		tf.train.start_queue_runners()
 
-		n_steps = 30000
-		moving_avg_accuracy = 0.
-		min_val_losses = [np.inf] * 5
-		for step in np.arange(n_steps):
-			loss, _, accuracy, summary = sess.run([model.test_loss, model.optimize, model.test_accuracy, model.summary], {model.is_training: False})
-			moving_avg_accuracy = 0.1 * accuracy + 0.9 * moving_avg_accuracy
-			if step % 50 == 0:
-				# model.writer.add_summary(summary, i)
-				# Validation
-				val_accuracy, val_loss, summary = sess.run([model_val.test_accuracy, model_val.test_loss, model_val.summary], {model.is_training: False})
-				# model_val.writer.add_summary(summary, i)
-				# accuracy = None
-				# print("Task #{} - Loss : {:.3f} - Acc : {:.3f} - Val Acc : {:.3f}".format(i + 1, loss, moving_avg, accuracy))
-				print("Step #{} - Loss : {:.3f} - Acc : {:.3f} - Val Loss : {:.3f} - Val Acc : {:.3f}".format(step, loss, moving_avg_accuracy, val_loss, val_accuracy))
-				if val_loss < np.max(min_val_losses):
-					min_val_losses[np.argmax(min_val_losses)] = val_loss
-					model.save(sess, FLAGS.savepath, global_step=step, verbose=True)
+		saved_metaval_loss = np.inf
+		try:
+			for step in np.arange(FLAGS.metatrain_iterations):
+				metatrain_loss, metatrain_preaccuracy, metatrain_postaccuracy, metatrain_summary, _ = sess.run([model_metatrain.test_loss, model_metatrain.train_accuracy, model_metatrain.test_accuracy, model_metatrain.summary, model_metatrain.optimize], {model_metatrain.is_training: False})
+				if step > 0 and step % FLAGS.print_every == 0:
+					model_metatrain.writer.add_summary(metatrain_summary, step)
+					print("Step #{} - Loss : {:.3f} - PreAcc : {:.3f} - PostAcc : {:.3f}".format(step, metatrain_loss, metatrain_preaccuracy, metatrain_postaccuracy))
+				if step > 0 and step % FLAGS.validate_every == 0:
+					metaval_loss, metaval_preaccuracy, metaval_postaccuracy, metaval_summary = sess.run([model_metaval.test_loss, model_metaval.train_accuracy, model_metaval.test_accuracy, model_metaval.summary], {model_metatrain.is_training: False})
+					model_metaval.writer.add_summary(metaval_summary, step)
+					print("Validation - Loss : {:.3f} - PreAcc : {:.3f} - PostAcc : {:.3f}".format(metaval_loss, metaval_preaccuracy, metaval_postaccuracy))
+					if metaval_loss < saved_metaval_loss:
+						saved_metaval_loss = metaval_loss
+						model_metatrain.save(sess, FLAGS.savepath, global_step=step, verbose=True)
+		# Catch Ctrl-C event and allow save option
+		except KeyboardInterrupt:
+			response = raw_input("\nSave latest model at Step #{}? (y/n)\n".format(step))
+			if response == 'y':
+				model_metatrain.save(sess, FLAGS.savepath, global_step=step, verbose=True)
+			else:
+				print("Latest model not saved.")
 
 	if FLAGS.test:
 
-		update_batch_size = 1
-		num_classes = 5
+		NUM_TEST_SAMPLES = 600
 
 		data_generator = DataGenerator(
 			datasource='omniglot',
-			num_classes=num_classes,
-			num_samples_per_class=2,
-			batch_size=5,
+			num_classes=FLAGS.num_classes,
+			num_samples_per_class=FLAGS.num_shot_train+FLAGS.num_shot_test,
+			batch_size=1, # use 1 for testing to calculate stdev and ci95
 			test_set=True,
 		)
 
-		# samples - (batch_size, num_classes * num_samples_per_class, 28 * 28)
-		# labels - (batch_size, num_classes * num_samples_per_class, num_classes)
-		train_image_tensor, train_label_tensor = data_generator.make_data_tensor(train=False)
+		image_tensor, label_tensor = data_generator.make_data_tensor(train=False)
 
-		train_inputs = tf.slice(train_image_tensor, [0,0,0], [-1,num_classes*update_batch_size, -1])
-		test_inputs = tf.slice(train_image_tensor, [0,num_classes*update_batch_size, 0], [-1,-1,-1])
-		train_labels = tf.slice(train_label_tensor, [0,0,0], [-1,num_classes*update_batch_size, -1])
-		test_labels = tf.slice(train_label_tensor, [0,num_classes*update_batch_size, 0], [-1,-1,-1])
+		train_inputs = tf.slice(image_tensor, [0, 0, 0], [-1, FLAGS.num_classes*FLAGS.num_shot_train, -1])
+		test_inputs = tf.slice(image_tensor, [0, FLAGS.num_classes*FLAGS.num_shot_train, 0], [-1, -1, -1])
+		train_labels = tf.slice(label_tensor, [0, 0, 0], [-1, FLAGS.num_classes*FLAGS.num_shot_train, -1])
+		test_labels = tf.slice(label_tensor, [0, FLAGS.num_classes*FLAGS.num_shot_train, 0], [-1, -1, -1])
 		input_tensors = {
 			'train_inputs': train_inputs, # batch_size, num_classes * (num_samples_per_class - update_batch_size), 28 * 28
 			'train_labels': train_labels, # batch_size, num_classes * (num_samples_per_class - update_batch_size), num_classes
@@ -142,112 +153,28 @@ def main(unused_args):
 			'test_labels': test_labels, # batch_size, num_classes * update_batch_size, num_classes
 		}
 
-		model = adaCNNModel("model", num_classes=num_classes, input_tensors=input_tensors, logdir=None)
+		model = adaCNNModel("model", num_classes=FLAGS.num_classes, input_tensors=input_tensors, logdir=None)
 
 		sess = tf.InteractiveSession()
 		model.load(sess, FLAGS.savepath, verbose=True)
-		# tf.global_variables_initializer().run()
 		tf.train.start_queue_runners()
 
 		accuracy_list = []
 
-		for batch in np.arange(120):
+		for task in np.arange(NUM_TEST_SAMPLES):
 			accuracy = sess.run(model.test_accuracy, {model.is_training: False})
-			print("Batch #{} - Test Acc : {:.3f}".format(batch, accuracy))
 			accuracy_list.append(accuracy)
+			if task > 0 and task % 100 == 0:
+				print("Metatested on {} tasks...".format(task))
 
-		print("\nEnd of Test - Mean Accuracy - {:.3f}".format(np.mean(accuracy_list)))
-				
+		avg = np.mean(accuracy_list)
+		stdev = np.std(accuracy_list)
+		ci95 = 1.96 * stdev / np.sqrt(NUM_TEST_SAMPLES)
 
-	if FLAGS.train_mnist:
-		task = MNISTFewShotTask()
-		model = NewMiniImageNetModel("model", n=3)
-		sess = tf.Session()
-		sess.run(tf.local_variables_initializer())
-		sess.run(tf.global_variables_initializer())
-
-		n_tasks = 20000
-		moving_avg = 0.
-		for i in np.arange(n_tasks):
-			(x_train, y_train), (x_test, y_test) = task.next_task(k=3, test_size=5)
-			feed_dict = {
-				model.train_inputs: np.expand_dims(x_train, axis=3) / 255.,
-				model.train_labels: np.eye(3)[np.array(y_train, dtype=np.int32)],
-				model.test_inputs: np.expand_dims(x_test, axis=3) / 255.,
-				model.test_labels: np.eye(3)[np.array(y_test, dtype=np.int32)],
-				model.is_training: False,
-			}
-
-			# print(sess.run(model.csn, feed_dict)["logits"])
-			# print(sess.run(model.miniresnet_train.logits, feed_dict))
-			# print(sess.run(model.miniresnet_test.logits, feed_dict))
-			# print(sess.run(model.miniresnet_train.logits, feed_dict))
-			# print()
-			# print(y_train)
-			# print(sess.run(model.test_loss, feed_dict))
-
-			# if i == 10:
-			# 	quit()
-
-			loss, _, accuracy = sess.run([model.test_loss, model.optimize, model.test_accuracy], feed_dict)
-			# accuracy = np.sum(y_test == predictions) / len(y_test)
-			# accuracy = np.sum(y_train == predictions) / len(y_train)
-
-			moving_avg = 0.1 * accuracy + 0.9 * moving_avg
-
-			if (i + 1) % 50 == 0:
-
-				(x_train, y_train), (x_test, y_test) = task.next_task(k=1, test_size=50, metatest=True)
-				feed_dict = {
-					model.train_inputs: np.expand_dims(x_train, axis=3) / 255.,
-					model.train_labels: np.eye(3)[np.array(y_train, dtype=np.int32)],
-					model.test_inputs: np.expand_dims(x_test, axis=3) / 255.,
-					model.test_labels: np.eye(3)[np.array(y_test, dtype=np.int32)],
-					model.is_training: False,
-				}
-				accuracy = sess.run(model.test_accuracy, feed_dict)
-				# predictions = sess.run(model.test_predictions, feed_dict)
-				# accuracy = np.sum(y_test == predictions) / len(y_test)
-				
-				print("Task #{} - Loss : {:.3f} - Acc : {:.3f} - Test Acc : {:.3f}".format(i + 1, loss, moving_avg, accuracy))
-
-
-	if FLAGS.test_mnist:
-		from keras.datasets import mnist
-		(x_train, y_train), (x_test, y_test) = mnist.load_data()
-
-		model = MiniImageNetModel("mnist", k=10)
-		sess = tf.Session()
-		model.load(sess, FLAGS.savepath)
-
-		batchsize = 256
-		start = 0
-		predictions = None
-		i = 0
-		while True:
-			end = int(start + batchsize)
-			if start >= len(x_train):
-				break
-			minibatch_x = np.expand_dims(x_train[start:end], axis=3) / 255.
-			minibatch_y = y_train[start:end]
-			start = end
-			feed_dict = {
-				model.inputs: minibatch_x,
-				model.is_training: False,
-			}
-			batch_predictions = sess.run(model.predictions, feed_dict)
-
-			if predictions is None:
-				predictions = batch_predictions
-			else:
-				predictions = np.concatenate([predictions, batch_predictions], axis=0)
-
-			if (i + 1) % 50 == 0:
-				print("Predicted {} samples...".format(end))
-
-			i += 1
-			
-		print(np.sum(predictions == y_train) / len(y_train))
+		print("\nEnd of Test!")
+		print("Accuracy                : {:.3f}".format(avg))
+		print("StdDev                  : {:.3f}".format(stdev))
+		print("95% Confidence Interval : {:.3f}".format(ci95))
 
 
 if __name__ == "__main__":
