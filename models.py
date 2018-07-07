@@ -400,7 +400,7 @@ class adaFFNModel(Model):
 			name="key_model",
 			inputs=self.inputs,
 			hidden=10,
-			output_dim=8,
+			output_dim=4,
 			parent=self,
 			csn=None,
 		)
@@ -409,8 +409,8 @@ class adaFFNModel(Model):
 			[tf.shape(self.train_inputs)[0]*tf.shape(self.train_inputs)[1], tf.shape(self.test_inputs)[0]*tf.shape(self.test_inputs)[1]],
 			axis=0,
 		)
-		self.train_keys = train_keys = tf.reshape(keys[0], [batch_size, -1, 8])
-		self.test_keys = test_keys = tf.reshape(keys[1], [batch_size, -1, 8])
+		self.train_keys = train_keys = tf.reshape(keys[0], [batch_size, -1, 4])
+		self.test_keys = test_keys = tf.reshape(keys[1], [batch_size, -1, 4])
 
 		# - Values
 
