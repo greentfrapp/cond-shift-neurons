@@ -327,11 +327,11 @@ class adaFFNNet(object):
 
 class adaFFNModel(Model):
 
-	def __init__(self, name, lr=1e-4, logdir=None, prefix='', num_train_samples=10, num_test_samples=10):
+	def __init__(self, name, lr=1e-4, logdir=None, prefix='', num_train_samples=10, num_test_samples=10, vary=False):
 		super(adaFFNModel, self).__init__()
 		self.name = name
 		with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
-			self.build_model(lr, num_train_samples, num_test_samples)
+			self.build_model(lr, num_train_samples, num_test_samples, vary=False)
 			variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.name)
 			self.saver = tf.train.Saver(var_list=variables, max_to_keep=3)
 		if logdir is not None:
@@ -340,7 +340,7 @@ class adaFFNModel(Model):
 				tf.summary.scalar("loss", self.test_loss, family=prefix),
 			])
 
-	def build_model(self, lr=1e-4, num_train_samples=10, num_test_samples=10):
+	def build_model(self, lr=1e-4, num_train_samples=10, num_test_samples=10, vary=False):
 
 		self.train_inputs = tf.placeholder(
 			shape=(None, num_train_samples, 1),
@@ -362,13 +362,19 @@ class adaFFNModel(Model):
 			dtype=tf.float32,
 			name="test_labels",
 		)
+		# use amplitude to scale loss
+		self.amp = tf.placeholder(
+			shape=(None),
+			dtype=tf.float32,
+			name="amplitude"
+		)
 
 		batch_size = tf.shape(self.train_inputs)[0]
 
 		self.inputs = tf.concat([
 			tf.reshape(self.train_inputs, [-1, 1]),
 			tf.reshape(self.test_inputs, [-1, 1])],
-			axis=0
+			axis=0,
 		)
 
 		# CNN
@@ -394,7 +400,7 @@ class adaFFNModel(Model):
 			name="key_model",
 			inputs=self.inputs,
 			hidden=10,
-			output_dim=4,
+			output_dim=8,
 			parent=self,
 			csn=None,
 		)
@@ -403,8 +409,8 @@ class adaFFNModel(Model):
 			[tf.shape(self.train_inputs)[0]*tf.shape(self.train_inputs)[1], tf.shape(self.test_inputs)[0]*tf.shape(self.test_inputs)[1]],
 			axis=0,
 		)
-		self.train_keys = train_keys = tf.reshape(keys[0], [batch_size, -1, 4])
-		self.test_keys = test_keys = tf.reshape(keys[1], [batch_size, -1, 4])
+		self.train_keys = train_keys = tf.reshape(keys[0], [batch_size, -1, 8])
+		self.test_keys = test_keys = tf.reshape(keys[1], [batch_size, -1, 8])
 
 		# - Values
 
@@ -414,12 +420,6 @@ class adaFFNModel(Model):
 			"outputs": tf.gradients(self.train_loss, self.regressor_train.outputs)[0] * tf.gradients(self.train_loss, self.regressor_train.outputs)[0],
 		}
 		
-		# self.train_values = train_values = {
-		# 	"dense_1": tf.reshape(MemoryValueModel(csn_gradients["dense_1"], self).outputs, [batch_size, -1, 40]),
-		# 	"dense_2": tf.reshape(MemoryValueModel(csn_gradients["dense_2"], self).outputs, [batch_size, -1, 40]),
-		# 	"outputs": tf.reshape(MemoryValueModel(csn_gradients["outputs"], self).outputs, [batch_size, -1, 1]),
-		# }
-
 		self.train_values = train_values = {
 			"dense_1": tf.reshape(adaFFNNet("value_model", csn_gradients["dense_1"], 10, 1, self, None).outputs, [batch_size, -1, 40]),
 			"dense_2": tf.reshape(adaFFNNet("value_model", csn_gradients["dense_2"], 10, 1, self, None).outputs, [batch_size, -1, 40]),
@@ -448,7 +448,7 @@ class adaFFNModel(Model):
 			csn=self.csn,
 		)
 
-		self.test_loss = tf.losses.mean_squared_error(labels=self.test_labels, predictions=self.regressor_test.outputs)
+		self.test_loss = tf.losses.mean_squared_error(labels=self.test_labels / self.amp, predictions=self.regressor_test.outputs / self.amp)
 		
 		self.optimize = tf.train.AdamOptimizer(learning_rate=lr).minimize(self.test_loss)
 
