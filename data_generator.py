@@ -1,11 +1,11 @@
-""" Code for loading data. """
-
+"""
+Code for generating and loading data
+"""
 
 import numpy as np
 import os
 import random
 import tensorflow as tf
-
 
 from utils import get_images
 
