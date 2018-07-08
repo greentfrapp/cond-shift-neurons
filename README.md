@@ -10,6 +10,8 @@ There are some implementation differences, eg. learning rate, number of convolut
 
 *WIP - only Sinusoid and Omniglot and using Direct Feedback (see Section 2.3 of paper) for now, miniImageNet WIP.*
 
+**Thanks to [@cbfinn](https://github.com/cbfinn/maml) for the data generation scripts!**
+
 ## Instructions
 
 ### Sinusoid
