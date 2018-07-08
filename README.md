@@ -124,6 +124,12 @@ Briefly and on a high-level, here's what happens during metatest:
 
 Put simply, if the test sample is most aligned to training sample A, we use gradient information derived from training sample A to *shift* the network and classify the test sample.
 
+During metatraining, we train three main things:
+
+- The initialization of the main network
+- The Key Function which is parameterized as a neural network
+- The Value Function which is parameterized as a neural network
+
 **But if the test sample is most aligned to training sample A, why don't we just classify it to be the same class as training sample A?**
 
 We can do that, but consider the case where the test sample is equally aligned to all three samples. Then the algorithm automatically incorporates gradient information from all three samples to make the classification. If we just use the alignment to make the decision, we would be stuck.
@@ -161,13 +167,6 @@ Notice that all three results are very different and fit far more poorly to the 
 The *shifted* output for `x = -3` intersects with the final result (in red) at `x = -3` (leftmost vertical line), since the prediction for `x = -3` is generated using that *shift*. 
 
 Likewise for `x = 0` and `x = 3`, as well as every test sample that was used to generate the final result. This also means that rather than being a single function, the final result in red is a combination of different *shifts* applied to the regression network. Hence the *somewhat discontinuous* descriptor used earlier. With this realization, it is also pretty cool that the combination of all these *shifts* actually generate a decent-looking output.
-
-During metatraining, we train three main things:
-
-- The initialization of the main network
-- The Key Function which is parameterized as a neural network
-- The Value Function which is parameterized as a neural network
-
 
 ## Interesting Notes and Relations
 
