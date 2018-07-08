@@ -1,12 +1,9 @@
 """
 Implementation of Conditionally-Shifted Neurons in Tensorflow
 
-TODO:
-- Implement adaResNet
-- Add dropout
-
+Munkhdalai, T., et al. **"Rapid adaptation with conditionally shifted neurons."** *Proceedings of the 35th International Conference on Machine Learning*. 2018.
+https://arxiv.org/pdf/1712.09926.pdf
 """
-
 
 from __future__ import print_function
 try:
@@ -14,15 +11,15 @@ try:
 except:
 	raw_input = input
 
-
 import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
 from absl import flags
 from absl import app
 
-
-from models import adaFFNModel, adaCNNModel, adaResNetModel
+from models.adaFFN import adaFFNModel
+from models.adaCNN import adaCNNModel
+from models.adaResNet import adaResNetModel
 from data_generator import DataGenerator
 
 
@@ -43,7 +40,7 @@ flags.DEFINE_integer("metatrain_iterations", None, "Number of metatraining itera
 flags.DEFINE_integer("meta_batch_size", 32, "Batchsize for metatraining")
 flags.DEFINE_float("meta_lr", 0.0003, "Meta learning rate")
 flags.DEFINE_integer("validate_every", 500, "Frequency for metavalidation and saving")
-flags.DEFINE_string("savepath", "models/", "Path to save or load models")
+flags.DEFINE_string("savepath", "saved_models/", "Path to save or load models")
 flags.DEFINE_string("logdir", "logs/", "Path to save Tensorboard summaries")
 
 # Testing parameters

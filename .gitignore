@@ -1,6 +1,6 @@
 data/*/*
 !data/omniglot_resized/resize_images.py
-models/
+saved_models/
 logs/
 
 # Byte-compiled / optimized / DLL files

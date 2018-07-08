@@ -1,9 +1,6 @@
 """
-
 Utility functions
-
 """
-
 
 import os
 import random
